@@ -166,12 +166,41 @@ def validate_data(df):
 
     return column_issues, case_mismatch_warnings
 
-# Streamlit App
+# Set your page configuration
+st.set_page_config(page_title="TCIA Clinical Data Validator", layout="wide")
+
+# Logo URLs for light and dark mode
+logo_light = "https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png"
+logo_dark = "https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-02.png"
+
+# Custom CSS to switch logo based on the user's theme preference
+st.sidebar.markdown(
+    f"""
+    <style>
+    @media (prefers-color-scheme: dark) {{
+        .logo {{
+            content: url({logo_dark});
+        }}
+    }}
+    @media (prefers-color-scheme: light) {{
+        .logo {{
+            content: url({logo_light});
+        }}
+    }}
+    </style>
+    <img class="logo" alt="App Logo">
+    """,
+    unsafe_allow_html=True
+)
+
+# main column title
 st.title("Clinical Data Validator")
 
 # User can either upload a file or enter a URL
-uploaded_file = st.file_uploader("Upload an Excel, CSV, or TSV file", type=["xlsx", "csv", "tsv"])
-sheet_url = st.text_input("Or enter the URL of a Google Sheets, CSV, Excel, or TSV file")
+st.sidebar.title("Upload your spreadsheet")
+uploaded_file = st.sidebar.file_uploader("Upload an Excel, CSV, or TSV file", type=["xlsx", "csv", "tsv"])
+sheet_url = st.sidebar.text_input("Or enter the URL of a Google Sheets, CSV, Excel, or TSV file")
+
 
 # Function to load data from URL or file
 def load_data_from_url(url):
