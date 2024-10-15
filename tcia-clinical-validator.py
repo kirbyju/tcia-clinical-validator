@@ -1,325 +1,417 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
+from io import BytesIO
 import re
-import tempfile
-import requests
 
-# Define permissible enumerations for certain fields
-permissible_race = [
-    "American Indian or Alaska Native", "Asian", "Black or African American",
-    "Native Hawaiian or Other Pacific Islander", "Not Allowed To Collect",
-    "Not Reported", "Unknown", "White"
-]
-
-permissible_ethnicity = [
-    "Hispanic or Latino", "Not Allowed To Collect",
-    "Not Hispanic or Latino", "Not Reported", "Unknown"
-]
-
-permissible_sex_at_birth = [
-    "Don't know", "Female", "Intersex", "Male",
-    "None of these describe me", "Prefer not to answer", "Unknown"
-]
-
-permissible_age_uom = ['Day', 'Month', 'Year']
-
-# Define the required column headers
-required_columns = [
-    'Project Short Name', 'Case ID'
-]
-
-# Define the allowable column headers
+# Permissible columns and enumerations
+required_columns = ['Project Short Name', 'Case ID']
 allowable_columns = [
     'Project Short Name', 'Case ID', 'Race', 'Ethnicity', 'Sex at Birth',
     'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery',
     'Age at Earliest Imaging', 'Age UOM', 'Primary Diagnosis', 'Primary Site'
 ]
+permissible_race = [
+    "American Indian or Alaska Native", "Asian", "Black or African American",
+    "Native Hawaiian or Other Pacific Islander", "Not Allowed To Collect",
+    "Not Reported", "Unknown", "White"
+]
+permissible_ethnicity = [
+    "Hispanic or Latino", "Not Allowed To Collect",
+    "Not Hispanic or Latino", "Not Reported", "Unknown"
+]
+permissible_sex_at_birth = [
+    "Don't know", "Female", "Intersex", "Male",
+    "None of these describe me", "Prefer not to answer", "Unknown"
+]
+permissible_age_uom = ['Day', 'Month', 'Year']
 
-# Helper functions for validation
-def validate_project_short_name(name):
-    if len(name) > 32:
-        return f"Exceeds 30 characters."
-    if re.search(r"[^a-zA-Z0-9\s\-_]", name):
-        return f"Contains special characters."
-    return None
+# Conversion factors for Age UOM
+age_uom_factors = {
+    'Day': 1 / 365,
+    'Month': 1 / 12,
+    'Year': 1
+}
 
-def validate_case_id(case_id):
-    if len(case_id) > 30:
-        return f"Exceeds 30 characters."
-    if re.search(r"[^a-zA-Z0-9\s\-_]", case_id):
-        return f"Contains invalid characters."
-    return None
+# convert non-age columns to strings
+def convert_to_strings(df):
+    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+    for col in df.columns:
+        if col not in age_columns:
+            df[col] = df[col].astype(str)
+    return df
 
-def validate_enumerated_field(value, permissible_values):
-    invalid_values = []
-    case_mismatched_values = []
-    input_values = [v.strip() for v in value.split(';') if v.strip()]
+# Helper to validate and clean data
+def validate_and_clean_data(df):
+    report = []
 
-    for input_value in input_values:
-        if input_value.lower() not in [pv.lower() for pv in permissible_values]:
-            invalid_values.append(input_value)
+    # Convert non-age columns to strings
+    df = convert_to_strings(df)
+
+    # Fix case sensitivity issues
+    for col in ['Race', 'Ethnicity', 'Sex at Birth']:
+        if col in df.columns:
+            df[col] = df[col].str.title().str.strip()
+
+    # Drop duplicate rows and report their original row numbers
+    duplicate_rows = df[df.duplicated()].index.tolist()
+    if duplicate_rows:
+        df.drop_duplicates(inplace=True)
+        report.append(f"Removed {len(duplicate_rows)} duplicate rows: {duplicate_rows}")
+
+    return df, report
+
+# helper function to validate Project Short Name
+def is_valid_project_short_name(name):
+    return bool(re.match(r'^[a-zA-Z0-9\s_-]{1,30}$', name))
+
+# helper function to find the correct capitalization of a column name
+def get_correct_column_name(col):
+    lower_allowable = {c.lower(): c for c in allowable_columns}
+    return lower_allowable.get(col.lower(), col)
+
+# helper function to get correct capitalization for categorical values
+def get_correct_value(value, valid_values):
+    lower_valid = {v.lower(): v for v in valid_values}
+    return lower_valid.get(value.lower(), value)
+
+# Function to clean and convert "Age at" columns to numeric
+def clean_age_columns(df, age_columns):
+    for col in age_columns:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')  # Convert to numeric, set non-numeric to NaN
+    return df
+
+# Function to calculate 'Age at Baseline' in years
+def calculate_age_at_baseline(df, age_columns, uom_column):
+    df['Age at Baseline'] = np.nan
+
+    if uom_column in df.columns:
+        # Filter for age columns that actually exist in the dataframe
+        existing_age_columns = [col for col in age_columns if col in df.columns]
+
+        if existing_age_columns:
+            for age_col in existing_age_columns:
+                # Convert all ages to years based on the UOM column
+                df[age_col] = df[age_col] * df[uom_column].map(age_uom_factors)
+
+            # Set the 'Age at Baseline' to the minimum of the existing "Age at" columns (in years)
+            df['Age at Baseline'] = df[existing_age_columns].min(axis=1)
         else:
-            correct_case_value = next(pv for pv in permissible_values if pv.lower() == input_value.lower())
-            if input_value != correct_case_value:
-                case_mismatched_values.append((input_value, correct_case_value))
+            st.warning("No age columns found in the dataframe. 'Age at Baseline' could not be calculated.")
 
-    return invalid_values, case_mismatched_values
+    return df
 
-def convert_age_to_years(age_value, uom):
-    if uom == 'Day':  # Days to years
-        return round(age_value / 365.25, 1)
-    elif uom == 'Month':  # Months to years
-        return round(age_value / 12, 1)
-    elif uom == 'Year':  # Already in years
-        return round(age_value, 1)
-    return None
-
-# Function to check for correct column headers
-def validate_headers(df):
-    age_columns = [
-        'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging'
-    ]
-    missing_columns = [col for col in required_columns if col not in df.columns]
-    extra_columns = [col for col in df.columns if col not in allowable_columns]
-
-    # Check if any 'Age at...' columns are present and 'Age UOM' is missing
-    if any(col in df.columns for col in age_columns) and 'Age UOM' not in df.columns:
-        missing_columns.append('Age UOM')
-
-    if missing_columns:
-        return False, f"Missing required columns: {', '.join(missing_columns)}"
-    if extra_columns:
-        st.warning(f"Warning: Unexpected columns found in the dataset: {', '.join(extra_columns)}")
-
-    return True, None
-
-# Summarize validation issues by column
-def summarize_column_issues(issues):
-    summary = ""
-    for column, column_issues in issues.items():
-        summary += f"**Column: {column}**\n"
-        if 'enumerable' in column_issues:
-            summary += f"- Allowed values: {', '.join(column_issues['allowed_values'])}\n"
-            summary += f"- Illegal values found: {', '.join(set(column_issues['illegal_values']))} (Rows affected: {column_issues['rows_affected']})\n"
-        elif 'free_text' in column_issues:
-            summary += f"- {column_issues['requirement']}\n"
-            summary += f"- Illegal values found: {', '.join(set(column_issues['illegal_values']))} (Rows affected: {column_issues['rows_affected']})\n"
-        summary += "\n"
-    return summary
-
-# Function to validate and summarize data issues
-def validate_data(df):
-    log = []
-    column_issues = {}
-    case_mismatch_warnings = {}
-
-    # Validate each required column
-    for index, row in df.iterrows():
-        # Validate Project Short Name
-        if pd.notnull(row['Project Short Name']):
-            result = validate_project_short_name(row['Project Short Name'])
-            if result:
-                column_issues.setdefault('Project Short Name', {'free_text': True, 'requirement': 'Must not exceed 30 characters or contain special characters (letters, numbers, spaces, dashes, and underscores allowed).', 'illegal_values': [], 'rows_affected': 0})
-                column_issues['Project Short Name']['illegal_values'].append(row['Project Short Name'])
-                column_issues['Project Short Name']['rows_affected'] += 1
-
-        # Validate Case ID
-        if pd.notnull(row['Case ID']):
-            result = validate_case_id(row['Case ID'])
-            if result:
-                column_issues.setdefault('Case ID', {'free_text': True, 'requirement': 'Must not exceed 30 characters or contain special characters (except underscores and dashes).', 'illegal_values': [], 'rows_affected': 0})
-                column_issues['Case ID']['illegal_values'].append(row['Case ID'])
-                column_issues['Case ID']['rows_affected'] += 1
-
-        # Validate Race
-        if pd.notnull(row['Race']):
-            invalid_values, case_mismatched = validate_enumerated_field(row['Race'], permissible_race)
-            if invalid_values:
-                column_issues.setdefault('Race', {'enumerable': True, 'allowed_values': permissible_race, 'illegal_values': [], 'rows_affected': 0})
-                column_issues['Race']['illegal_values'].extend(invalid_values)
-                column_issues['Race']['rows_affected'] += 1
-            if case_mismatched:
-                case_mismatch_warnings.setdefault('Race', [])
-                case_mismatch_warnings['Race'].extend(case_mismatched)
-
-        # Validate Ethnicity
-        if pd.notnull(row['Ethnicity']):
-            invalid_values, case_mismatched = validate_enumerated_field(row['Ethnicity'], permissible_ethnicity)
-            if invalid_values:
-                column_issues.setdefault('Ethnicity', {'enumerable': True, 'allowed_values': permissible_ethnicity, 'illegal_values': [], 'rows_affected': 0})
-                column_issues['Ethnicity']['illegal_values'].extend(invalid_values)
-                column_issues['Ethnicity']['rows_affected'] += 1
-            if case_mismatched:
-                case_mismatch_warnings.setdefault('Ethnicity', [])
-                case_mismatch_warnings['Ethnicity'].extend(case_mismatched)
-
-        # Validate Sex at Birth
-        if pd.notnull(row['Sex at Birth']):
-            invalid_values, case_mismatched = validate_enumerated_field(row['Sex at Birth'], permissible_sex_at_birth)
-            if invalid_values:
-                column_issues.setdefault('Sex at Birth', {'enumerable': True, 'allowed_values': permissible_sex_at_birth, 'illegal_values': [], 'rows_affected': 0})
-                column_issues['Sex at Birth']['illegal_values'].extend(invalid_values)
-                column_issues['Sex at Birth']['rows_affected'] += 1
-            if case_mismatched:
-                case_mismatch_warnings.setdefault('Sex at Birth', [])
-                case_mismatch_warnings['Sex at Birth'].extend(case_mismatched)
-
-    return column_issues, case_mismatch_warnings
-
-# Set your page configuration
-st.set_page_config(page_title="TCIA Clinical Data Validator", layout="wide")
-
-# Logo URLs for light and dark mode
-logo_light = "https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png"
-logo_dark = "https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-02.png"
+# Main Streamlit app
+st.set_page_config(page_title="TCIA Clinical Data Validator")
 
 # Custom CSS to switch logo based on the user's theme preference
-st.sidebar.markdown(
-    f"""
+st.markdown(
+    """
     <style>
-    @media (prefers-color-scheme: dark) {{
-        .logo {{
-            content: url({logo_dark});
-        }}
-    }}
-    @media (prefers-color-scheme: light) {{
-        .logo {{
-            content: url({logo_light});
-        }}
-    }}
+    @media (prefers-color-scheme: dark) {
+        .logo {
+            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png);
+        }
+    }
+    @media (prefers-color-scheme: light) {
+        .logo {
+            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-02.png);
+        }
+    }
     </style>
-    <img class="logo" alt="App Logo">
+    <header class="main-header">
+        <img class="logo" alt="App Logo">
+    </header>
     """,
     unsafe_allow_html=True
 )
 
+
 # main column title
 st.title("Clinical Data Validator")
 
-# User can either upload a file or enter a URL
-st.sidebar.title("Upload your spreadsheet")
-uploaded_file = st.sidebar.file_uploader("Upload an Excel, CSV, or TSV file", type=["xlsx", "csv", "tsv"])
-sheet_url = st.sidebar.text_input("Or enter the URL of a Google Sheets, CSV, Excel, or TSV file")
+# Initialize session state to track steps
+if 'step' not in st.session_state:
+    st.session_state.step = 1
+if 'project_short_name' not in st.session_state:
+    st.session_state.project_short_name = ''
+if 'age_uom' not in st.session_state:
+    st.session_state.age_uom = ''
 
+# Step 1: File Upload and Import
+if st.session_state.step == 1:
+    st.subheader("Step 1: Upload your CSV, XLSX, or TSV file")
+    uploaded_file = st.file_uploader("Upload your file", type=["csv", "xlsx", "tsv"])
+    url = st.text_input("...or provide the URL of the file")
 
-# Function to load data from URL or file
-def load_data_from_url(url):
-    file_extension = url.split('.')[-1].lower()
+    if uploaded_file or url:
+        try:
+            if uploaded_file:
+                if uploaded_file.name.endswith(".csv"):
+                    df = pd.read_csv(uploaded_file)
+                elif uploaded_file.name.endswith(".xlsx"):
+                    df = pd.read_excel(uploaded_file)
+                elif uploaded_file.name.endswith(".tsv"):
+                    df = pd.read_csv(uploaded_file, delimiter='\t')
+            elif url:
+                df = pd.read_csv(url)  # Assuming URL is a CSV for simplicity
 
-    # Download the file
-    try:
-        response = requests.get(url)
-        response.raise_for_status()  # Check if the URL is accessible
+            st.success("File imported successfully!")
 
-        if file_extension == 'xlsx':
-            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as tmp:
-                tmp.write(response.content)
-                tmp.seek(0)
-                df = pd.read_excel(tmp.name)
+            # Remove leading and trailing spaces from all strings in the dataframe
+            df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+            # move to the next step/state
+            st.session_state.df = df
+            st.session_state.step = 2
+            st.rerun()
+        except Exception as e:
+            st.error(f"Error processing file: {str(e)}")
 
-        elif file_extension == 'csv':
-            df = pd.read_csv(url)
+# Step 2: Analyze and Map Columns
+elif st.session_state.step == 2:
+    st.subheader("Step 2: Map column names to Common Data Elements")
+    df = st.session_state.df
 
-        elif file_extension == 'tsv':
-            df = pd.read_csv(url, sep='\t')
+    # Automatically correct capitalization for columns that match allowable columns
+    columns_to_rename = {}
+    for col in df.columns:
+        correct_name = get_correct_column_name(col)
+        if correct_name != col:
+            columns_to_rename[col] = correct_name
 
-        else:
-            st.error(f"Unsupported file format from URL: {file_extension}")
-            return None
+    if columns_to_rename:
+        df.rename(columns=columns_to_rename, inplace=True)
+        st.info(f"The following columns were automatically renamed to correct capitalization: {', '.join(columns_to_rename.values())}")
 
-        return df
+    # Find truly unexpected columns (those that don't match any allowable column, regardless of capitalization)
+    unexpected_columns = [col for col in df.columns if col.lower() not in [c.lower() for c in allowable_columns]]
 
-    except Exception as e:
-        st.error(f"Error loading file from URL: {e}")
-        return None
+    if unexpected_columns:
+        st.write("The following unexpected columns were found:")
+        column_mapping = {}
+        for col in unexpected_columns:
+            option = st.selectbox(f"How should '{col}' be mapped?", allowable_columns + ["Delete column"], key=col, index=len(allowable_columns))
+            column_mapping[col] = option
 
-# Function to load data from file uploader
-def load_data(uploaded_file):
-    file_extension = uploaded_file.name.split('.')[-1].lower()
-
-    if file_extension == 'xlsx':
-        df = pd.read_excel(uploaded_file)
-    elif file_extension == 'csv':
-        df = pd.read_csv(uploaded_file)  # Default CSV handling
-    elif file_extension == 'tsv':
-        df = pd.read_csv(uploaded_file, sep='\t')  # Handle TSV (tab-separated)
+        if st.button("Apply column mapping"):
+            for col, action in column_mapping.items():
+                if action == "Delete column":
+                    df.drop(columns=[col], inplace=True)
+                else:
+                    df.rename(columns={col: action}, inplace=True)
+            st.success("Columns mapped successfully!")
+            st.session_state.df = df
+            st.session_state.columns_mapped = True
+            st.rerun()
     else:
-        st.error("Unsupported file format")
-        df = None
-    return df
+        st.success("All columns are correctly named or have been automatically corrected.")
+        st.session_state.columns_mapped = True
 
-if uploaded_file is not None:
-    df = load_data(uploaded_file)
-    st.write("File uploaded successfully!")
-elif sheet_url:
-    df = load_data_from_url(sheet_url)
-    if df is not None:
-        st.write("Data loaded from URL successfully!")
-else:
-    df = None
+    # Only show "Next step" button if all columns are mapped
+    if st.session_state.get('columns_mapped', False):
+        if st.button("Next step"):
+            st.session_state.step = 3
+            st.rerun()
 
-# Check column headers before validation
-if df is not None:
-    headers_valid, header_error = validate_headers(df)
-    if not headers_valid:
-        st.error(header_error)
-        df = None
+# Step 3: Check Required Columns and Validate Project Short Name
+elif st.session_state.step == 3:
+    st.subheader("Step 3: Check Required Columns and Validate Data")
+    df = st.session_state.df
 
-# Run validation if file and headers are valid
-if df is not None and st.button('Validate'):
+    # Convert non-age columns to strings
+    df = convert_to_strings(df)
 
-    # Drop columns that are not in allowable_columns
-    df = df[[col for col in df.columns if col in allowable_columns]]
+    missing_case_id = 'Case ID' not in df.columns
+    missing_project_short_name = 'Project Short Name' not in df.columns
+    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+    existing_age_columns = [col for col in age_columns if col in df.columns]
+    missing_age_uom = 'Age UOM' not in df.columns and existing_age_columns
 
-    # Convert project short name and case id to strings and Sort by them
-    df['Project Short Name'] = df['Project Short Name'].astype(str)
-    df['Case ID'] = df['Case ID'].astype(str)
-    df = df.sort_values(by=['Project Short Name', 'Case ID'])
-
-    # Remove leading and trailing spaces from all values in the dataframe
-    df = df.applymap(lambda x: x.strip() if isinstance(x, str) else x)
-
-    # Run data validation steps
-    column_issues, case_mismatch_warnings = validate_data(df)
-
-    # Display validation issues
-    if column_issues:
-        st.error("Validation Errors Detected:")
-        summary = summarize_column_issues(column_issues)
-        st.markdown(summary)
-
-    # Display case mismatch warnings
-    if case_mismatch_warnings:
-        st.warning("Validation Warnings Detected: (these will be automatically fixed after any errors are addressed)")
-        for column, mismatches in case_mismatch_warnings.items():
-            st.markdown(f"**{column}:**")
-            # Unique mismatches
-            unique_mismatches = list(set(mismatches))
-            for original, correct in unique_mismatches:
-                st.markdown(f"- '{original}' will be corrected to '{correct}'")
-
-    # If no critical issues, allow downloading of the validated and corrected file
-    if not column_issues:
-        # Correct case mismatches in the DataFrame
-        for column, mismatches in case_mismatch_warnings.items():
-            unique_mismatches = list(set(mismatches))
-            for original, correct in unique_mismatches:
-                df[column] = df[column].replace(original, correct)
-
-        # Save the corrected DataFrame
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.xlsx') as tmp:
-            df.to_excel(tmp.name, index=False)
-            tmp.seek(0)
-            st.download_button(
-                label="Download Validated and Corrected Excel File",
-                data=tmp.read(),
-                file_name="clinical-data-validated-corrected.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
-
-        if case_mismatch_warnings:
-            st.success("Validation and automated cleanup complete.")
-        else:
-            st.success("Validation complete. No issues found.")
+    if missing_case_id:
+        st.error("The 'Case ID' column is missing from your spreadsheet. This is a required column.")
+        if st.button("Restart"):
+            st.session_state.step = 1
+            if 'df' in st.session_state:
+                del st.session_state.df
+            st.rerun()
     else:
-        st.error("Please correct the Validation Errors in your source data and try again.")
+        project_short_name_valid = True
+        age_uom_valid = True
+
+        # Handle Project Short Name
+        name_updates = {}
+        if missing_project_short_name:
+            st.warning("The 'Project Short Name' column is missing from your spreadsheet.")
+            project_short_name = st.text_input("Please specify a Project Short Name:", value=st.session_state.project_short_name)
+            if project_short_name:
+                if is_valid_project_short_name(project_short_name):
+                    st.session_state.project_short_name = project_short_name
+                else:
+                    st.error("Invalid Project Short Name. It should be 1-30 characters long and contain only letters, numbers, dashes, and underscores.")
+                    project_short_name_valid = False
+            else:
+                project_short_name_valid = False
+        else:
+            # Check existing Project Short Names
+            invalid_names = df[~df['Project Short Name'].apply(is_valid_project_short_name)]['Project Short Name'].unique()
+            if len(invalid_names) > 0:
+                st.warning("Some Project Short Names are invalid. Please update them:")
+                for name in invalid_names:
+                    new_name = st.text_input(f"New name for '{name}' (1-30 characters, letters, numbers, dashes, underscores):")
+                    if new_name:
+                        if is_valid_project_short_name(new_name):
+                            name_updates[name] = new_name
+                        else:
+                            st.error(f"'{new_name}' is not a valid Project Short Name.")
+                            project_short_name_valid = False
+                    else:
+                        project_short_name_valid = False
+            else:
+                st.success("All Project Short Names are valid.")
+
+        # Handle missing Age UOM
+        if missing_age_uom:
+            st.warning("The 'Age UOM' column is missing, but age-related columns are present.")
+            age_uom = st.selectbox("Please select the Age Unit of Measure:", options=permissible_age_uom, index=0 if not st.session_state.age_uom else permissible_age_uom.index(st.session_state.age_uom))
+            if age_uom:
+                st.session_state.age_uom = age_uom
+            else:
+                age_uom_valid = False
+        else:
+            age_uom_valid = True
+
+        # Single "Next step" button for both updating and continuing
+        if st.button("Next step"):
+            if project_short_name_valid and age_uom_valid:
+                # Apply updates to Project Short Names if necessary
+                if missing_project_short_name:
+                    df['Project Short Name'] = st.session_state.project_short_name
+                for old_name, new_name in name_updates.items():
+                    df.loc[df['Project Short Name'] == old_name, 'Project Short Name'] = new_name
+
+                # Apply Age UOM changes if necessary
+                if missing_age_uom:
+                    df['Age UOM'] = st.session_state.age_uom
+
+                st.session_state.df = df
+                st.success("Changes applied successfully!")
+                st.session_state.step = 4
+                st.rerun()
+            else:
+                if not project_short_name_valid:
+                    st.error("Please provide a valid Project Short Name.")
+                if not age_uom_valid:
+                    st.error("Please select an Age Unit of Measure.")
+
+# Step 4: Validate Data
+elif st.session_state.step == 4:
+    st.subheader("Step 4: Validate Data")
+    df = st.session_state.df
+
+    # Dictionary to store corrections for each column
+    corrections = {}
+
+    # Function to apply corrections
+    def apply_corrections():
+        for col, correct_dict in corrections.items():
+            df[col] = df[col].replace(correct_dict)
+        st.session_state.df = df
+        st.success("Corrections applied successfully!")
+        st.rerun()
+
+    # Validate categorical columns
+    categorical_columns = {
+        'Race': permissible_race,
+        'Ethnicity': permissible_ethnicity,
+        'Sex at Birth': permissible_sex_at_birth,
+        'Age UOM': permissible_age_uom
+    }
+
+    for col, valid_values in categorical_columns.items():
+        if col in df.columns:
+            # Automatically correct capitalization
+            df[col] = df[col].apply(lambda x: get_correct_value(x, valid_values) if pd.notna(x) else x)
+
+            # Find remaining invalid values
+            invalid_values = df[~df[col].isin(valid_values + [np.nan])][col].unique()
+
+            if len(invalid_values) > 0:
+                st.markdown(f"### Invalid values found in {col}:")
+                corrections[col] = {}
+                for value in invalid_values:
+                    correct_value = st.selectbox(
+                        f"Correct value for '{value}' in {col}:",
+                        options=valid_values,
+                        key=f"{col}_{value}"
+                    )
+                    corrections[col][value] = correct_value
+
+    # Validate numeric columns
+    numeric_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+    for col in numeric_columns:
+        if col in df.columns:
+            #non_numeric = df[pd.to_numeric(df[col], errors='coerce').isna()][col]
+            non_numeric = df[df[col].notna() & pd.to_numeric(df[col], errors='coerce').isna()][col]
+            if not non_numeric.empty:
+                st.write(f"Non-numeric values found in {col}:")
+                corrections[col] = {}
+                for idx, value in non_numeric.items():
+                    correct_value = st.text_input(f"Correct value for '{value}' in {col} (row {idx}):", key=f"{col}_{idx}")
+                    if correct_value:
+                        try:
+                            float(correct_value)
+                            corrections[col][value] = correct_value
+                        except ValueError:
+                            st.error(f"'{correct_value}' is not a valid numeric value.")
+
+    # Apply corrections button
+    if corrections:
+        if st.button("Apply Corrections"):
+            apply_corrections()
+    else:
+        st.success("All data is valid!")
+
+    # populate 'age at baseline' column
+    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+    df = clean_age_columns(df, age_columns)  # Ensure age columns are numeric
+    df = calculate_age_at_baseline(df, age_columns, 'Age UOM')
+    st.session_state.df = df
+
+    # Only show "Next step" button if no corrections are needed
+    if not corrections:
+        if st.button("Next step"):
+            st.session_state.step = 5
+            st.rerun()
+
+# this can happen behind the scenes at the end of step 4 after values are remapped
+# Step 5: Age at Baseline Calculation
+#elif st.session_state.step == 5:
+#    st.subheader("Step 4: Calculate 'Age at Baseline'")
+#    df = st.session_state.df
+#    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+#    df = clean_age_columns(df, age_columns)  # Ensure age columns are numeric
+#    df = calculate_age_at_baseline(df, age_columns, 'Age UOM')  # Calculate baseline age
+
+#    st.write("Age at Baseline column created and converted to years.")
+#    st.session_state.df = df
+
+#    if st.button("Next step"):
+#        st.session_state.step = 6
+
+# Step 5: Download Standardized Data
+# TODO:
+# reset sensible column order
+# add support for multi-select enumerable values (semicolon separator?)
+elif st.session_state.step == 5:
+    st.subheader("Step 5: Download Standardized Data")
+    df = st.session_state.df
+    output = BytesIO()
+    df.to_csv(output, index=False)
+    st.download_button("Download Standardized CSV", data=output.getvalue(), file_name="standardized_data.csv")
+
+    if st.button("Restart"):
+        st.session_state.step = 1
+        if 'df' in st.session_state:
+            del st.session_state.df
+        st.rerun()
