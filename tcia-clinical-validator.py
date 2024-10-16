@@ -49,9 +49,13 @@ def validate_and_clean_data(df):
     df = convert_to_strings(df)
 
     # Fix case sensitivity issues
-    for col in ['Race', 'Ethnicity', 'Sex at Birth']:
+    for col in ['Ethnicity', 'Sex at Birth']:
         if col in df.columns:
             df[col] = df[col].str.title().str.strip()
+
+    # Handle multiple Race values
+    if 'Race' in df.columns:
+        df['Race'] = df['Race'].apply(lambda x: ';'.join(sorted(set([r.strip().title() for r in str(x).split(';')]))))
 
     # Drop duplicate rows and report their original row numbers
     duplicate_rows = df[df.duplicated()].index.tolist()
@@ -102,6 +106,17 @@ def calculate_age_at_baseline(df, age_columns, uom_column):
 
     return df
 
+# Function to reorder columns
+def reorder_columns(df):
+    preferred_order = [
+        'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Primary Site',
+        'Race', 'Ethnicity', 'Sex at Birth', 'Age at Baseline', 'Age UOM',
+        'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging'
+    ]
+    existing_columns = [col for col in preferred_order if col in df.columns]
+    other_columns = [col for col in df.columns if col not in existing_columns]
+    return df[existing_columns + other_columns]
+
 # Main Streamlit app
 st.set_page_config(page_title="TCIA Clinical Data Validator")
 
@@ -111,12 +126,12 @@ st.markdown(
     <style>
     @media (prefers-color-scheme: dark) {
         .logo {
-            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png);
+            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-02.png);
         }
     }
     @media (prefers-color-scheme: light) {
         .logo {
-            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-02.png);
+            content: url(https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png);
         }
     }
     </style>
@@ -126,7 +141,6 @@ st.markdown(
     """,
     unsafe_allow_html=True
 )
-
 
 # main column title
 st.title("Clinical Data Validator")
@@ -179,7 +193,6 @@ elif st.session_state.step == 2:
         correct_name = get_correct_column_name(col)
         if correct_name != col:
             columns_to_rename[col] = correct_name
-
     if columns_to_rename:
         df.rename(columns=columns_to_rename, inplace=True)
         st.info(f"The following columns were automatically renamed to correct capitalization: {', '.join(columns_to_rename.values())}")
@@ -322,7 +335,6 @@ elif st.session_state.step == 4:
 
     # Validate categorical columns
     categorical_columns = {
-        'Race': permissible_race,
         'Ethnicity': permissible_ethnicity,
         'Sex at Birth': permissible_sex_at_birth,
         'Age UOM': permissible_age_uom
@@ -347,11 +359,28 @@ elif st.session_state.step == 4:
                     )
                     corrections[col][value] = correct_value
 
+    # Validate Race column (allowing multiple values)
+    if 'Race' in df.columns:
+        invalid_races = df['Race'].apply(lambda x: any(race.strip() not in permissible_race for race in x.split(';') if race.strip()))
+        invalid_race_values = df[invalid_races]['Race'].unique()
+
+        if len(invalid_race_values) > 0:
+            st.markdown("### Invalid values found in Race:")
+            corrections['Race'] = {}
+            for value in invalid_race_values:
+                st.write(f"Invalid value: '{value}'")
+                correct_races = st.multiselect(
+                    f"Select correct races for '{value}':",
+                    options=permissible_race,
+                    key=f"Race_{value}"
+                )
+                if correct_races:
+                    corrections['Race'][value] = ';'.join(correct_races)
+
     # Validate numeric columns
     numeric_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
     for col in numeric_columns:
         if col in df.columns:
-            #non_numeric = df[pd.to_numeric(df[col], errors='coerce').isna()][col]
             non_numeric = df[df[col].notna() & pd.to_numeric(df[col], errors='coerce').isna()][col]
             if not non_numeric.empty:
                 st.write(f"Non-numeric values found in {col}:")
@@ -372,7 +401,7 @@ elif st.session_state.step == 4:
     else:
         st.success("All data is valid!")
 
-    # populate 'age at baseline' column
+    # Populate 'age at baseline' column
     age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
     df = clean_age_columns(df, age_columns)  # Ensure age columns are numeric
     df = calculate_age_at_baseline(df, age_columns, 'Age UOM')
@@ -384,28 +413,17 @@ elif st.session_state.step == 4:
             st.session_state.step = 5
             st.rerun()
 
-# this can happen behind the scenes at the end of step 4 after values are remapped
-# Step 5: Age at Baseline Calculation
-#elif st.session_state.step == 5:
-#    st.subheader("Step 4: Calculate 'Age at Baseline'")
-#    df = st.session_state.df
-#    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
-#    df = clean_age_columns(df, age_columns)  # Ensure age columns are numeric
-#    df = calculate_age_at_baseline(df, age_columns, 'Age UOM')  # Calculate baseline age
-
-#    st.write("Age at Baseline column created and converted to years.")
-#    st.session_state.df = df
-
-#    if st.button("Next step"):
-#        st.session_state.step = 6
-
-# Step 5: Download Standardized Data
 # TODO:
 # reset sensible column order
 # add support for multi-select enumerable values (semicolon separator?)
+# Step 5: Download Standardized Data
 elif st.session_state.step == 5:
     st.subheader("Step 5: Download Standardized Data")
     df = st.session_state.df
+
+    # Reorder columns
+    df = reorder_columns(df)
+
     output = BytesIO()
     df.to_csv(output, index=False)
     st.download_button("Download Standardized CSV", data=output.getvalue(), file_name="standardized_data.csv")
