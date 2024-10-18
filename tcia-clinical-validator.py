@@ -4,13 +4,38 @@ import numpy as np
 from io import BytesIO
 import re
 
+st.set_page_config(page_title="TCIA Clinical Data Validator")
+
 # Permissible columns and enumerations
 required_columns = ['Project Short Name', 'Case ID']
 allowable_columns = [
     'Project Short Name', 'Case ID', 'Race', 'Ethnicity', 'Sex at Birth',
     'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery',
-    'Age at Earliest Imaging', 'Age UOM', 'Primary Diagnosis', 'Primary Site'
+    'Age at Earliest Imaging', 'Age UOM', 'Primary Diagnosis', 'Tissue or Organ of Origin'
 ]
+
+# Function to read and process permissible value lists for primary diagnosis and tissue of origin
+def load_permissible_values(file_path):
+    try:
+        df = pd.read_excel(file_path)
+        # Assuming 'Permissible Value' is the column name
+        values = df['Permissible Value'].dropna().unique().tolist()
+        # Sort values for easier lookup
+        return sorted(values)
+    except Exception as e:
+        st.error(f"Error loading permissible values from {file_path}: {str(e)}")
+        return []
+
+# Load permissible values at app startup
+@st.cache_data
+def initialize_permissible_values():
+    primary_diagnosis_values = load_permissible_values('primary_diagnosis_caDSR_6161032.xlsx')
+    tissue_organ_values = load_permissible_values('tissue_or_organ_of_origin_caDSR_6161035.xlsx')
+    return primary_diagnosis_values, tissue_organ_values
+
+# Load the permissible values for Primary Diagnosis and Tissue/Organ of Origin
+permissible_primary_diagnosis, permissible_tissue_or_organ = initialize_permissible_values()
+
 permissible_race = [
     "American Indian or Alaska Native", "Asian", "Black or African American",
     "Native Hawaiian or Other Pacific Islander", "Not Allowed To Collect",
@@ -65,6 +90,122 @@ def validate_and_clean_data(df):
 
     return df, report
 
+def validate_categorical_data(df):
+    # Define which columns are required vs optional
+    required_categorical_columns = {
+        'Ethnicity': permissible_ethnicity,
+        'Sex at Birth': permissible_sex_at_birth,
+        'Age UOM': permissible_age_uom,
+    }
+
+    optional_categorical_columns = {
+        'Primary Diagnosis': permissible_primary_diagnosis,
+        'Tissue or Organ of Origin': permissible_tissue_or_organ
+    }
+
+    corrections = {}
+
+    # Function to find invalid values in a column
+    def get_invalid_values(series, valid_values):
+        valid_values_dict = {v.lower(): v for v in valid_values}
+        invalid_mask = ~series.apply(lambda x: pd.isna(x) or
+                                   str(x).lower() in valid_values_dict)
+        return series[invalid_mask].unique()
+
+    # Handle required categorical columns
+    for col, valid_values in required_categorical_columns.items():
+        if col in df.columns:
+            valid_values_dict = {v.lower(): v for v in valid_values}
+
+            def correct_case(value):
+                if pd.isna(value):
+                    return value
+                value_lower = str(value).lower()
+                return valid_values_dict.get(value_lower, value)
+
+            df[col] = df[col].apply(correct_case)
+            invalid_values = get_invalid_values(df[col], valid_values)
+
+            if len(invalid_values) > 0:
+                st.warning(f"Found {len(invalid_values)} invalid values in {col} (required field)")
+                corrections[col] = {}
+                for invalid_value in invalid_values:
+                    correct_value = st.selectbox(
+                        f"Correct value for '{invalid_value}' in {col}:",
+                        options=valid_values,
+                        key=f"{col}_{invalid_value}"
+                    )
+                    if correct_value:
+                        corrections[col][invalid_value] = correct_value
+
+    # Handle optional categorical columns
+    for col, valid_values in optional_categorical_columns.items():
+        if col in df.columns:  # Only process if column exists
+            valid_values_dict = {v.lower(): v for v in valid_values}
+
+            # Apply case correction first
+            df[col] = df[col].apply(lambda x: valid_values_dict.get(str(x).lower(), x)
+                                  if pd.notna(x) else x)
+
+            invalid_values = get_invalid_values(df[col], valid_values)
+
+            if len(invalid_values) > 0:
+                st.warning(f"Found {len(invalid_values)} non-standard values in {col}")
+
+                # Show example values
+                if len(invalid_values) > 5:
+                    example_values = ', '.join(f"'{v}'" for v in invalid_values[:5]) + f", and {len(invalid_values)-5} more"
+                else:
+                    example_values = ', '.join(f"'{v}'" for v in invalid_values)
+                st.info(f"Examples of non-standard values: {example_values}")
+
+                # Create a safe key for the checkbox by replacing spaces with underscores
+                checkbox_key = f"fix_{col.replace(' ', '_')}"
+
+                # Use checkbox with the safe key
+                fix_col = st.checkbox(
+                    f"Would you like to standardize the {col} values?",
+                    key=checkbox_key
+                )
+
+                if fix_col:
+                    corrections[col] = {}
+                    for invalid_value in invalid_values:
+                        from difflib import get_close_matches
+                        close_matches = get_close_matches(str(invalid_value), valid_values, n=5, cutoff=0.6)
+
+                        # Create safe keys for selection widgets
+                        selection_key = f"{col.replace(' ', '_')}_{str(invalid_value).replace(' ', '_')}"
+
+                        if close_matches:
+                            correct_value = st.selectbox(
+                                f"Select standardized value for '{invalid_value}':",
+                                options=['Keep current value'] + close_matches + ['Other'] + valid_values,
+                                key=selection_key
+                            )
+                        else:
+                            correct_value = st.selectbox(
+                                f"No close matches found. Select standardized value for '{invalid_value}':",
+                                options=['Keep current value', 'Other'] + valid_values,
+                                key=selection_key
+                            )
+
+                        if correct_value == 'Other':
+                            custom_key = f"{selection_key}_custom"
+                            custom_value = st.selectbox(
+                                f"Select a value from the complete list:",
+                                options=valid_values,
+                                key=custom_key
+                            )
+                            if custom_value:
+                                corrections[col][invalid_value] = custom_value
+                        elif correct_value != 'Keep current value':
+                            corrections[col][invalid_value] = correct_value
+                else:
+                    st.info(f"Keeping original values for {col}")
+
+    return df, corrections
+
 # helper function to validate Project Short Name
 def is_valid_project_short_name(name):
     return bool(re.match(r'^[a-zA-Z0-9\s_-]{1,30}$', name))
@@ -109,7 +250,7 @@ def calculate_age_at_baseline(df, age_columns, uom_column):
 # Function to reorder columns
 def reorder_columns(df):
     preferred_order = [
-        'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Primary Site',
+        'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Tissue or Organ of Origin',
         'Race', 'Ethnicity', 'Sex at Birth', 'Age at Baseline', 'Age UOM',
         'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging'
     ]
@@ -118,8 +259,6 @@ def reorder_columns(df):
     return df[existing_columns + other_columns]
 
 # Main Streamlit app
-st.set_page_config(page_title="TCIA Clinical Data Validator")
-
 # Custom CSS to switch logo based on the user's theme preference
 st.markdown(
     """
@@ -187,6 +326,14 @@ elif st.session_state.step == 2:
     st.subheader("Step 2: Map column names to Common Data Elements")
     df = st.session_state.df
 
+    # Clean and validate the data first
+    df, validation_report = validate_and_clean_data(df)
+
+    # Display any cleaning operations that were performed
+    if validation_report:
+        for message in validation_report:
+            st.info(message)
+
     # Automatically correct capitalization for columns that match allowable columns
     columns_to_rename = {}
     for col in df.columns:
@@ -201,7 +348,7 @@ elif st.session_state.step == 2:
     unexpected_columns = [col for col in df.columns if col.lower() not in [c.lower() for c in allowable_columns]]
 
     if unexpected_columns:
-        st.write("The following unexpected columns were found:")
+        st.markdown("### The following unexpected columns were found:")
         column_mapping = {}
         for col in unexpected_columns:
             option = st.selectbox(f"How should '{col}' be mapped?", allowable_columns + ["Delete column"], key=col, index=len(allowable_columns))
@@ -220,6 +367,9 @@ elif st.session_state.step == 2:
     else:
         st.success("All columns are correctly named or have been automatically corrected.")
         st.session_state.columns_mapped = True
+
+    # Update the session state with the cleaned data
+    st.session_state.df = df
 
     # Only show "Next step" button if all columns are mapped
     if st.session_state.get('columns_mapped', False):
@@ -322,51 +472,31 @@ elif st.session_state.step == 4:
     st.subheader("Step 4: Validate Data")
     df = st.session_state.df
 
-    # Dictionary to store corrections for each column
-    corrections = {}
+    # Dictionary to store all corrections
+    all_corrections = {}
 
-    # Function to apply corrections
+    # Function to apply all corrections
     def apply_corrections():
-        for col, correct_dict in corrections.items():
+        for col, correct_dict in all_corrections.items():
             df[col] = df[col].replace(correct_dict)
         st.session_state.df = df
         st.success("Corrections applied successfully!")
         st.rerun()
 
-    # Validate categorical columns
-    categorical_columns = {
-        'Ethnicity': permissible_ethnicity,
-        'Sex at Birth': permissible_sex_at_birth,
-        'Age UOM': permissible_age_uom
-    }
+    # 1. Validate categorical columns
+    df, categorical_corrections = validate_categorical_data(df)
+    all_corrections.update(categorical_corrections)
 
-    for col, valid_values in categorical_columns.items():
-        if col in df.columns:
-            # Automatically correct capitalization
-            df[col] = df[col].apply(lambda x: get_correct_value(x, valid_values) if pd.notna(x) else x)
-
-            # Find remaining invalid values
-            invalid_values = df[~df[col].isin(valid_values + [np.nan])][col].unique()
-
-            if len(invalid_values) > 0:
-                st.markdown(f"### Invalid values found in {col}:")
-                corrections[col] = {}
-                for value in invalid_values:
-                    correct_value = st.selectbox(
-                        f"Correct value for '{value}' in {col}:",
-                        options=valid_values,
-                        key=f"{col}_{value}"
-                    )
-                    corrections[col][value] = correct_value
-
-    # Validate Race column (allowing multiple values)
+    # 2. Validate Race column (special handling for multiple values)
     if 'Race' in df.columns:
-        invalid_races = df['Race'].apply(lambda x: any(race.strip() not in permissible_race for race in x.split(';') if race.strip()))
+        invalid_races = df['Race'].apply(lambda x: any(race.strip() not in permissible_race
+                                                     for race in str(x).split(';')
+                                                     if race.strip()))
         invalid_race_values = df[invalid_races]['Race'].unique()
 
         if len(invalid_race_values) > 0:
             st.markdown("### Invalid values found in Race:")
-            corrections['Race'] = {}
+            race_corrections = {}
             for value in invalid_race_values:
                 st.write(f"Invalid value: '{value}'")
                 correct_races = st.multiselect(
@@ -375,47 +505,63 @@ elif st.session_state.step == 4:
                     key=f"Race_{value}"
                 )
                 if correct_races:
-                    corrections['Race'][value] = ';'.join(correct_races)
+                    race_corrections[value] = ';'.join(correct_races)
 
-    # Validate numeric columns
-    numeric_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
+            if race_corrections:
+                all_corrections['Race'] = race_corrections
+
+    # 3. Validate numeric columns
+    numeric_columns = ['Age at Diagnosis', 'Age at Enrollment',
+                      'Age at Surgery', 'Age at Earliest Imaging']
+
     for col in numeric_columns:
         if col in df.columns:
-            non_numeric = df[df[col].notna() & pd.to_numeric(df[col], errors='coerce').isna()][col]
+            non_numeric = df[df[col].notna() &
+                           pd.to_numeric(df[col], errors='coerce').isna()][col]
             if not non_numeric.empty:
                 st.write(f"Non-numeric values found in {col}:")
-                corrections[col] = {}
+                numeric_corrections = {}
                 for idx, value in non_numeric.items():
-                    correct_value = st.text_input(f"Correct value for '{value}' in {col} (row {idx}):", key=f"{col}_{idx}")
+                    correct_value = st.text_input(
+                        f"Correct value for '{value}' in {col} (row {idx}):",
+                        key=f"{col}_{idx}"
+                    )
                     if correct_value:
                         try:
                             float(correct_value)
-                            corrections[col][value] = correct_value
+                            numeric_corrections[value] = correct_value
                         except ValueError:
                             st.error(f"'{correct_value}' is not a valid numeric value.")
 
+                if numeric_corrections:
+                    all_corrections[col] = numeric_corrections
+
     # Apply corrections button
-    if corrections:
-        if st.button("Apply Corrections"):
+    if all_corrections:
+        if st.button("Apply All Corrections"):
             apply_corrections()
     else:
         st.success("All data is valid!")
 
     # Populate 'age at baseline' column
-    age_columns = ['Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging']
-    df = clean_age_columns(df, age_columns)  # Ensure age columns are numeric
+    age_columns = ['Age at Diagnosis', 'Age at Enrollment',
+                   'Age at Surgery', 'Age at Earliest Imaging']
+    df = clean_age_columns(df, age_columns)
     df = calculate_age_at_baseline(df, age_columns, 'Age UOM')
     st.session_state.df = df
 
     # Only show "Next step" button if no corrections are needed
-    if not corrections:
+    remaining_corrections = {k: v for k, v in all_corrections.items()
+                           if not k.startswith('skip_')}
+    if not remaining_corrections:
         if st.button("Next step"):
+            # Clear skip flags for next run
+            for key in list(st.session_state.keys()):
+                if key.startswith('skip_'):
+                    del st.session_state[key]
             st.session_state.step = 5
             st.rerun()
 
-# TODO:
-# reset sensible column order
-# add support for multi-select enumerable values (semicolon separator?)
 # Step 5: Download Standardized Data
 elif st.session_state.step == 5:
     st.subheader("Step 5: Download Standardized Data")
