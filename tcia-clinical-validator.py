@@ -127,7 +127,7 @@ def validate_categorical_data(df):
             invalid_values = get_invalid_values(df[col], valid_values)
 
             if len(invalid_values) > 0:
-                st.warning(f"Found {len(invalid_values)} invalid values in {col} (required field)")
+                st.markdown(f"#### Found {len(invalid_values)} invalid values in {col} (required field)")
                 corrections[col] = {}
                 for invalid_value in invalid_values:
                     correct_value = st.selectbox(
@@ -150,14 +150,14 @@ def validate_categorical_data(df):
             invalid_values = get_invalid_values(df[col], valid_values)
 
             if len(invalid_values) > 0:
-                st.warning(f"Found {len(invalid_values)} non-standard values in {col}")
+                st.markdown(f"#### Found {len(invalid_values)} non-standard values in {col}")
 
                 # Show example values
                 if len(invalid_values) > 5:
                     example_values = ', '.join(f"'{v}'" for v in invalid_values[:5]) + f", and {len(invalid_values)-5} more"
                 else:
                     example_values = ', '.join(f"'{v}'" for v in invalid_values)
-                st.info(f"Examples of non-standard values: {example_values}")
+                st.markdown(f"Examples of non-standard values: {example_values}")
 
                 # Create a safe key for the checkbox by replacing spaces with underscores
                 checkbox_key = f"fix_{col.replace(' ', '_')}"
@@ -483,11 +483,7 @@ elif st.session_state.step == 4:
         st.success("Corrections applied successfully!")
         st.rerun()
 
-    # 1. Validate categorical columns
-    df, categorical_corrections = validate_categorical_data(df)
-    all_corrections.update(categorical_corrections)
-
-    # 2. Validate Race column (special handling for multiple values)
+    # 1. Validate Race column (special handling for multiple values)
     if 'Race' in df.columns:
         invalid_races = df['Race'].apply(lambda x: any(race.strip() not in permissible_race
                                                      for race in str(x).split(';')
@@ -495,7 +491,7 @@ elif st.session_state.step == 4:
         invalid_race_values = df[invalid_races]['Race'].unique()
 
         if len(invalid_race_values) > 0:
-            st.markdown("### Invalid values found in Race:")
+            st.markdown("#### Invalid values found in Race:")
             race_corrections = {}
             for value in invalid_race_values:
                 st.write(f"Invalid value: '{value}'")
@@ -510,6 +506,10 @@ elif st.session_state.step == 4:
             if race_corrections:
                 all_corrections['Race'] = race_corrections
 
+    # 2. Validate other categorical columns
+    df, categorical_corrections = validate_categorical_data(df)
+    all_corrections.update(categorical_corrections)
+
     # 3. Validate numeric columns
     numeric_columns = ['Age at Diagnosis', 'Age at Enrollment',
                       'Age at Surgery', 'Age at Earliest Imaging']
@@ -519,7 +519,7 @@ elif st.session_state.step == 4:
             non_numeric = df[df[col].notna() &
                            pd.to_numeric(df[col], errors='coerce').isna()][col]
             if not non_numeric.empty:
-                st.write(f"Non-numeric values found in {col}:")
+                st.markdown(f"#### Non-numeric values found in {col}:")
                 numeric_corrections = {}
                 for idx, value in non_numeric.items():
                     correct_value = st.text_input(
