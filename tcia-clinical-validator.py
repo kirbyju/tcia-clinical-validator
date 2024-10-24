@@ -307,31 +307,11 @@ def clean_age_columns(df, age_columns):
             df[col] = pd.to_numeric(df[col], errors='coerce')  # Convert to numeric, set non-numeric to NaN
     return df
 
-# Function to calculate 'Age at Baseline' in years
-def calculate_age_at_baseline(df, age_columns, uom_column):
-    df['Age at Baseline'] = np.nan
-
-    if uom_column in df.columns:
-        # Filter for age columns that actually exist in the dataframe
-        existing_age_columns = [col for col in age_columns if col in df.columns]
-
-        if existing_age_columns:
-            for age_col in existing_age_columns:
-                # Convert all ages to years based on the UOM column
-                df[age_col] = df[age_col] * df[uom_column].map(age_uom_factors)
-
-            # Set the 'Age at Baseline' to the minimum of the existing "Age at" columns (in years)
-            df['Age at Baseline'] = df[existing_age_columns].min(axis=1)
-        else:
-            st.warning("No age columns found in the dataframe. 'Age at Baseline' could not be calculated.")
-
-    return df
-
 # Function to reorder columns
 def reorder_columns(df):
     preferred_order = [
         'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Tissue or Organ of Origin',
-        'Race', 'Ethnicity', 'Sex at Birth', 'Age at Baseline', 'Age UOM',
+        'Race', 'Ethnicity', 'Sex at Birth', 'Age UOM',
         'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging'
     ]
     existing_columns = [col for col in preferred_order if col in df.columns]
