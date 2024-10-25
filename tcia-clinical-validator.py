@@ -26,11 +26,27 @@ def reset_session_state():
     st.session_state.column_mapping = {}
     st.session_state.mapping_applied = False
 
-    # Clear validation related states
+    # Categorical validation states
     if 'kept_values' in st.session_state:
         del st.session_state.kept_values
     if 'fix_column_states' in st.session_state:
         del st.session_state.fix_column_states
+
+    # Clear validation mappings
+    if 'mapping_complete' in st.session_state:
+        del st.session_state.mapping_complete
+    if 'value_mappings' in st.session_state:
+        del st.session_state.value_mappings
+
+    # Primary Diagnosis and Tissue/Organ mapping states - Added explicit clearing
+    if 'primary_diagnosis_mapped' in st.session_state:
+        del st.session_state.primary_diagnosis_mapped
+    if 'primary_diagnosis_mappings' in st.session_state:
+        del st.session_state.primary_diagnosis_mappings
+    if 'tissue_organ_mapped' in st.session_state:
+        del st.session_state.tissue_organ_mapped
+    if 'tissue_organ_mappings' in st.session_state:
+        del st.session_state.tissue_organ_mappings
 
     # Clear the dataframe if it exists
     if 'df' in st.session_state:
@@ -43,7 +59,8 @@ def reset_session_state():
             key.startswith('Race_') or
             key.startswith('Age_') or
             key.startswith('Primary_Diagnosis_') or
-            key.startswith('Tissue_or_Organ_')):
+            key.startswith('Tissue_or_Organ_') or
+            key.startswith('fix_')):
             keys_to_remove.append(key)
 
     for key in keys_to_remove:
