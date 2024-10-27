@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 from io import BytesIO
 import re
+from difflib import SequenceMatcher
 
 st.set_page_config(page_title="TCIA Clinical Data Validator")
 
@@ -142,167 +143,6 @@ def validate_and_clean_data(df):
 
     return df, report
 
-def validate_categorical_data(df):
-    # Define which columns are required vs optional
-    required_categorical_columns = {
-        'Ethnicity': permissible_ethnicity,
-        'Sex at Birth': permissible_sex_at_birth,
-        'Age UOM': permissible_age_uom,
-    }
-
-    optional_categorical_columns = {
-        'Primary Diagnosis': permissible_primary_diagnosis,
-        'Tissue or Organ of Origin': permissible_tissue_or_organ
-    }
-
-    corrections = {}
-
-    # Initialize session state for kept values and mapping states
-    if 'kept_values' not in st.session_state:
-        st.session_state.kept_values = {}
-    if 'fix_column_states' not in st.session_state:
-        st.session_state.fix_column_states = {}
-    if 'mapping_complete' not in st.session_state:
-        st.session_state.mapping_complete = {}
-    if 'value_mappings' not in st.session_state:
-        st.session_state.value_mappings = {}
-
-    # Function to find invalid values in a column
-    def get_invalid_values(series, valid_values):
-        valid_values_dict = {v.lower(): v for v in valid_values}
-        invalid_mask = ~series.apply(lambda x: pd.isna(x) or
-                                   str(x).lower() in valid_values_dict)
-        return series[invalid_mask].unique()
-
-    # Handle required categorical columns first
-    for col, valid_values in required_categorical_columns.items():
-        if col in df.columns:
-            valid_values_dict = {v.lower(): v for v in valid_values}
-
-            def correct_case(value):
-                if pd.isna(value):
-                    return value
-                value_lower = str(value).lower()
-                return valid_values_dict.get(value_lower, value)
-
-            df[col] = df[col].apply(correct_case)
-            invalid_values = get_invalid_values(df[col], valid_values)
-
-            if len(invalid_values) > 0:
-                st.markdown(f"#### Found {len(invalid_values)} invalid values in {col} (required field)")
-                corrections[col] = {}
-                for invalid_value in invalid_values:
-                    correct_value = st.selectbox(
-                        f"Correct value for '{invalid_value}' in {col}:",
-                        options=valid_values,
-                        key=f"{col}_{invalid_value}"
-                    )
-                    if correct_value:
-                        corrections[col][invalid_value] = correct_value
-
-    # Handle optional categorical columns
-    for col, valid_values in optional_categorical_columns.items():
-        if col in df.columns:
-            # Initialize column-specific session state
-            if col not in st.session_state.mapping_complete:
-                st.session_state.mapping_complete[col] = False
-            if col not in st.session_state.value_mappings:
-                st.session_state.value_mappings[col] = {}
-
-            valid_values_dict = {v.lower(): v for v in valid_values}
-
-            # Apply case correction first
-            df[col] = df[col].apply(lambda x: valid_values_dict.get(str(x).lower(), x)
-                                  if pd.notna(x) else x)
-
-            # Get all invalid values
-            all_invalid_values = get_invalid_values(df[col], valid_values)
-
-            if len(all_invalid_values) > 0 and not st.session_state.mapping_complete[col]:
-                st.markdown(f"#### Found {len(all_invalid_values)} non-standard values in {col}")
-
-                # Show example values
-                if len(all_invalid_values) > 5:
-                    example_values = ', '.join(f"'{v}'" for v in all_invalid_values[:5]) + f", and {len(all_invalid_values)-5} more"
-                else:
-                    example_values = ', '.join(f"'{v}'" for v in all_invalid_values)
-                st.markdown(f"Examples of non-standard values: {example_values}")
-
-                # Create a stable key for the checkbox
-                checkbox_key = f"fix_{col.replace(' ', '_')}"
-
-                # Show checkbox for standardization
-                fix_col = st.checkbox(
-                    f"Would you like to standardize the {col} values?",
-                    key=checkbox_key
-                )
-
-                if fix_col:
-                    temp_mappings = {}
-                    for invalid_value in all_invalid_values:
-                        from difflib import get_close_matches
-                        close_matches = get_close_matches(str(invalid_value), valid_values, n=5, cutoff=0.6)
-
-                        selection_key = f"{col.replace(' ', '_')}_{str(invalid_value).replace(' ', '_')}"
-
-                        if close_matches:
-                            correct_value = st.selectbox(
-                                f"Select standardized value for '{invalid_value}':",
-                                options=['Keep current value'] + close_matches + valid_values,
-                                key=selection_key
-                            )
-                        else:
-                            correct_value = st.selectbox(
-                                f"No close matches found. Select standardized value for '{invalid_value}':",
-                                options=['Keep current value'] + valid_values,
-                                key=selection_key
-                            )
-
-                        temp_mappings[invalid_value] = correct_value
-
-                    # Add a button to confirm mappings for this column
-                    if st.button(f"Confirm mappings for {col}"):
-                        # Store the mappings
-                        st.session_state.value_mappings[col] = temp_mappings
-                        st.session_state.mapping_complete[col] = True
-                        st.rerun()
-
-                else:
-                    # If checkbox is unchecked, mark as complete with no changes
-                    if st.button(f"Confirm keeping original values for {col}"):
-                        st.session_state.mapping_complete[col] = True
-                        st.session_state.value_mappings[col] = {val: 'Keep current value' for val in all_invalid_values}
-                        st.rerun()
-
-            elif len(all_invalid_values) > 0 and st.session_state.mapping_complete[col]:
-                # Show summary of mappings
-                st.markdown(f"#### Mapping Summary for {col}:")
-
-                # Group values by action
-                to_keep = [val for val, mapping in st.session_state.value_mappings[col].items()
-                          if mapping == 'Keep current value']
-                to_remap = {val: mapping for val, mapping in st.session_state.value_mappings[col].items()
-                           if mapping != 'Keep current value'}
-
-                if to_keep:
-                    st.info(f"Values to keep unchanged: {', '.join(f'`{val}`' for val in to_keep)}")
-
-                if to_remap:
-                    remap_summary = [f"`{old}` → `{new}`" for old, new in to_remap.items()]
-                    st.info(f"Values to be remapped: {', '.join(remap_summary)}")
-
-                # Add mappings to corrections if there are any remappings
-                if to_remap:
-                    corrections[col] = to_remap
-
-                # Add button to reset mappings if needed
-                if st.button(f"Reset mappings for {col}"):
-                    st.session_state.mapping_complete[col] = False
-                    st.session_state.value_mappings[col] = {}
-                    st.rerun()
-
-    return df, corrections
-
 # helper function to validate Project Short Name
 def is_valid_project_short_name(name):
     return bool(re.match(r'^[a-zA-Z0-9\s_-]{1,30}$', name))
@@ -313,16 +153,75 @@ def get_correct_column_name(col):
     return lower_allowable.get(col.lower(), col)
 
 # helper function to get correct capitalization for categorical values
+### Not implemented anywhere -- do we need to re-add this to check for places where values are just capitalized incorrectly?
 def get_correct_value(value, valid_values):
     lower_valid = {v.lower(): v for v in valid_values}
     return lower_valid.get(value.lower(), value)
 
 # Function to clean and convert "Age at" columns to numeric
+### Not implemented anywhere -- do we need to re-add this?  Maybe just alert user if non-numeric found and map values?
 def clean_age_columns(df, age_columns):
     for col in age_columns:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors='coerce')  # Convert to numeric, set non-numeric to NaN
     return df
+
+def get_prioritized_options(value, valid_options, n_suggestions=5):
+    """
+    Returns a prioritized list of valid options based on multiple matching strategies.
+
+    Args:
+        value (str): The input value to find matches for
+        valid_options (list): List of valid options to match against
+        n_suggestions (int): Number of close matches to return before remaining options
+
+    Returns:
+        list: Prioritized list of options with best matches first
+    """
+    def clean_string(s):
+        # Convert to lowercase and remove special characters
+        return re.sub(r'[^a-z0-9\s]', '', str(s).lower())
+
+    def get_similarity_score(option):
+        # Get base similarity score
+        base_score = SequenceMatcher(None, clean_string(value), clean_string(option)).ratio()
+
+        # Boost score for matches at start of words
+        words_value = set(clean_string(value).split())
+        words_option = set(clean_string(option).split())
+        word_start_matches = sum(1 for w1 in words_value
+                               for w2 in words_option
+                               if w2.startswith(w1) or w1.startswith(w2))
+
+        # Boost score for acronym matches
+        value_acronym = ''.join(word[0] for word in clean_string(value).split() if word)
+        option_acronym = ''.join(word[0] for word in clean_string(option).split() if word)
+        acronym_match = SequenceMatcher(None, value_acronym, option_acronym).ratio()
+
+        # Boost score for partial word matches
+        shared_words = words_value.intersection(words_option)
+        word_match_score = len(shared_words) / max(len(words_value), len(words_option)) if words_value else 0
+
+        # Calculate weighted final score
+        final_score = (base_score * 0.4 +  # Base string similarity
+                      (word_start_matches * 0.1) +  # Word start matches
+                      (acronym_match * 0.2) +  # Acronym similarity
+                      (word_match_score * 0.3))  # Word match score
+
+        return final_score
+
+    # Score all options
+    scored_options = [(option, get_similarity_score(option)) for option in valid_options]
+
+    # Sort by score in descending order
+    scored_options.sort(key=lambda x: x[1], reverse=True)
+
+    # Get top N matches and remaining options
+    top_matches = [option for option, _ in scored_options[:n_suggestions]]
+    remaining_options = [option for option, _ in scored_options[n_suggestions:]]
+
+    # Construct final list with 'Keep current value' first, then top matches, then remaining options
+    return ['Keep current value'] + top_matches + remaining_options
 
 # Function to reorder columns
 def reorder_columns(df):
@@ -632,7 +531,7 @@ elif st.session_state.step == 3:
                 if not age_uom_valid:
                     st.error("Please select an Age Unit of Measure.")
 
-# Step 4: Validate Data (modified to exclude Primary Diagnosis and Tissue/Organ)
+# Step 4: Validate Race, Ethnicity and Age Data
 elif st.session_state.step == 4:
     st.subheader("Step 4: Validate Race, Ethnicity, and Age Data")
     df = st.session_state.df
@@ -773,15 +672,8 @@ elif st.session_state.step == 5:
                 # Show mapping interface
                 mappings = {}
                 for value in invalid_values:
-                    # Get close matches
-                    from difflib import get_close_matches
-                    close_matches = get_close_matches(str(value), permissible_tissue_or_organ, n=5, cutoff=0.6)
-
                     # Create selectbox with close matches first, then all options
-                    options = ['Keep current value']
-                    if close_matches:
-                        options.extend(close_matches)
-                    options.extend([v for v in permissible_tissue_or_organ if v not in close_matches])
+                    options = get_prioritized_options(value, permissible_tissue_or_organ)
 
                     selected_value = st.selectbox(
                         f"Map '{value}' to:",
@@ -821,7 +713,7 @@ elif st.session_state.step == 5:
                 # Button to reset mappings
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("Reset mappings"):
+                    if st.button("Map additional values"):
                         st.session_state.tissue_organ_mapped = False
                         st.session_state.tissue_organ_mappings = {}
                         st.rerun()
@@ -863,15 +755,8 @@ elif st.session_state.step == 6:
                 # Show mapping interface
                 mappings = {}
                 for value in invalid_values:
-                    # Get close matches
-                    from difflib import get_close_matches
-                    close_matches = get_close_matches(str(value), permissible_primary_diagnosis, n=5, cutoff=0.6)
-
                     # Create selectbox with close matches first, then all options
-                    options = ['Keep current value']
-                    if close_matches:
-                        options.extend(close_matches)
-                    options.extend([v for v in permissible_primary_diagnosis if v not in close_matches])
+                    options = get_prioritized_options(value, permissible_primary_diagnosis)
 
                     selected_value = st.selectbox(
                         f"Map '{value}' to:",
