@@ -12,7 +12,7 @@ required_columns = ['Project Short Name', 'Case ID']
 allowable_columns = [
     'Project Short Name', 'Case ID', 'Race', 'Ethnicity', 'Sex at Birth',
     'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery','Age UOM',
-    'Primary Diagnosis', 'Tissue or Organ of Origin'
+    'Primary Diagnosis', 'Primary Site'
 ]
 
 def reset_session_state():
@@ -39,15 +39,15 @@ def reset_session_state():
     if 'value_mappings' in st.session_state:
         del st.session_state.value_mappings
 
-    # Primary Diagnosis and Tissue/Organ mapping states - Added explicit clearing
+    # Primary Diagnosis and Primary Site mapping states - Added explicit clearing
     if 'primary_diagnosis_mapped' in st.session_state:
         del st.session_state.primary_diagnosis_mapped
     if 'primary_diagnosis_mappings' in st.session_state:
         del st.session_state.primary_diagnosis_mappings
-    if 'tissue_organ_mapped' in st.session_state:
-        del st.session_state.tissue_organ_mapped
-    if 'tissue_organ_mappings' in st.session_state:
-        del st.session_state.tissue_organ_mappings
+    if 'primary_site_mapped' in st.session_state:
+        del st.session_state.primary_site_mapped
+    if 'primary_site_mappings' in st.session_state:
+        del st.session_state.primary_site_mappings
 
     # Clear the dataframe if it exists
     if 'df' in st.session_state:
@@ -60,14 +60,14 @@ def reset_session_state():
             key.startswith('Race_') or
             key.startswith('Age_') or
             key.startswith('Primary_Diagnosis_') or
-            key.startswith('Tissue_or_Organ_') or
+            key.startswith('Primary_Site_') or
             key.startswith('fix_')):
             keys_to_remove.append(key)
 
     for key in keys_to_remove:
         del st.session_state[key]
 
-# Function to read and process permissible value lists for primary diagnosis and tissue of origin
+# Function to read and process permissible value lists for primary diagnosis and primary site
 def load_permissible_values(file_path):
     try:
         df = pd.read_excel(file_path)
@@ -82,12 +82,12 @@ def load_permissible_values(file_path):
 # Load permissible values at app startup
 @st.cache_data
 def initialize_permissible_values():
-    primary_diagnosis_values = load_permissible_values('primary_diagnosis_caDSR_6161032.xlsx')
-    tissue_organ_values = load_permissible_values('tissue_or_organ_of_origin_caDSR_6161035.xlsx')
-    return primary_diagnosis_values, tissue_organ_values
+    primary_diagnosis_values = load_permissible_values('primary_diagnosis_caDSR_14905532.xlsx')
+    primary_site_values = load_permissible_values('primary_site_caDSR_14883047.xlsx')
+    return primary_diagnosis_values, primary_site_values
 
-# Load the permissible values for Primary Diagnosis and Tissue/Organ of Origin
-permissible_primary_diagnosis, permissible_tissue_or_organ = initialize_permissible_values()
+# Load the permissible values for Primary Diagnosis and Primary Site
+permissible_primary_diagnosis, permissible_primary_site = initialize_permissible_values()
 
 permissible_race = [
     "American Indian or Alaska Native", "Asian", "Black or African American",
@@ -226,7 +226,7 @@ def get_prioritized_options(value, valid_options, n_suggestions=5):
 # Function to reorder columns
 def reorder_columns(df):
     preferred_order = [
-        'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Tissue or Organ of Origin',
+        'Project Short Name', 'Case ID', 'Primary Diagnosis', 'Primary Site',
         'Race', 'Ethnicity', 'Sex at Birth', 'Age UOM',
         'Age at Diagnosis', 'Age at Enrollment', 'Age at Surgery', 'Age at Earliest Imaging'
     ]
@@ -570,7 +570,7 @@ elif st.session_state.step == 4:
             if race_corrections:
                 all_corrections['Race'] = race_corrections
 
-    # 2. Validate categorical columns (excluding Primary Diagnosis and Tissue/Organ)
+    # 2. Validate categorical columns (excluding Primary Diagnosis and Primary Site)
     categorical_columns = {
         'Ethnicity': permissible_ethnicity,
         'Sex at Birth': permissible_sex_at_birth,
@@ -640,68 +640,68 @@ elif st.session_state.step == 4:
             st.session_state.step = 5
             st.rerun()
 
-# Step 5: Tissue or Organ of Origin Validation
+# Step 5: Primary Site Validation
 elif st.session_state.step == 5:
-    st.subheader("Step 5: Validate Tissue or Organ of Origin")
+    st.subheader("Step 5: Validate Primary Site")
     df = st.session_state.df
 
-    if 'Tissue or Organ of Origin' not in df.columns:
-        st.info("No Tissue or Organ of Origin column found in the data. Proceeding to next step.")
+    if 'Primary Site' not in df.columns:
+        st.info("No Primary Site column found in the data. Proceeding to next step.")
         if st.button("Next step"):
             st.session_state.step = 6
             st.rerun()
     else:
-        # Initialize session state for Tissue/Organ mapping
-        if 'tissue_organ_mapped' not in st.session_state:
-            st.session_state.tissue_organ_mapped = False
-        if 'tissue_organ_mappings' not in st.session_state:
-            st.session_state.tissue_organ_mappings = {}
+        # Initialize session state for Primary Site mapping
+        if 'primary_site_mapped' not in st.session_state:
+            st.session_state.primary_site_mapped = False
+        if 'primary_site_mappings' not in st.session_state:
+            st.session_state.primary_site_mappings = {}
 
         # Get invalid values
-        invalid_values = df[~df['Tissue or Organ of Origin'].isin(permissible_tissue_or_organ)]['Tissue or Organ of Origin'].unique()
+        invalid_values = df[~df['Primary Site'].isin(permissible_primary_site)]['Primary Site'].unique()
 
         if len(invalid_values) == 0:
-            st.success("All Tissue or Organ of Origin values are valid!")
+            st.success("All Primary Site values are valid!")
             if st.button("Next step"):
                 st.session_state.step = 6
                 st.rerun()
         else:
-            if not st.session_state.tissue_organ_mapped:
-                st.markdown(f"#### Found {len(invalid_values)} non-standard Tissue or Organ of Origin values")
+            if not st.session_state.primary_site_mapped:
+                st.markdown(f"#### Found {len(invalid_values)} non-standard Primary Site values")
 
                 # Show mapping interface
                 mappings = {}
                 for value in invalid_values:
                     # Create selectbox with close matches first, then all options
-                    options = get_prioritized_options(value, permissible_tissue_or_organ)
+                    options = get_prioritized_options(value, permissible_primary_site)
 
                     selected_value = st.selectbox(
                         f"Map '{value}' to:",
                         options=options,
-                        key=f"tissue_organ_{value}"
+                        key=f"primary_site_{value}"
                     )
 
                     if selected_value != 'Keep current value':
                         mappings[value] = selected_value
 
                 # Button to confirm mappings
-                if st.button("Confirm Tissue or Organ of Origin mappings"):
-                    st.session_state.tissue_organ_mappings = mappings
-                    st.session_state.tissue_organ_mapped = True
+                if st.button("Confirm Primary Site mappings"):
+                    st.session_state.primary_site_mappings = mappings
+                    st.session_state.primary_site_mapped = True
 
                     # Apply mappings
                     if mappings:
-                        df['Tissue or Organ of Origin'] = df['Tissue or Organ of Origin'].replace(mappings)
+                        df['Primary Site'] = df['Primary Site'].replace(mappings)
                         st.session_state.df = df
 
                     st.rerun()
             else:
                 # Show mapping summary
-                st.markdown("#### Tissue or Organ of Origin Mapping Summary:")
+                st.markdown("#### Primary Site Mapping Summary:")
 
                 # Group values by action
-                to_keep = [val for val in invalid_values if val not in st.session_state.tissue_organ_mappings]
-                to_remap = st.session_state.tissue_organ_mappings
+                to_keep = [val for val in invalid_values if val not in st.session_state.primary_site_mappings]
+                to_remap = st.session_state.primary_site_mappings
 
                 if to_keep:
                     st.info(f"Values to keep unchanged: {', '.join(f'`{val}`' for val in to_keep)}")
@@ -714,8 +714,8 @@ elif st.session_state.step == 5:
                 col1, col2 = st.columns(2)
                 with col1:
                     if st.button("Map additional values"):
-                        st.session_state.tissue_organ_mapped = False
-                        st.session_state.tissue_organ_mappings = {}
+                        st.session_state.primary_site_mapped = False
+                        st.session_state.primary_site_mappings = {}
                         st.rerun()
 
                 with col2:
@@ -815,8 +815,8 @@ elif st.session_state.step == 7:
     df = reorder_columns(df)
 
     output = BytesIO()
-    df.to_csv(output, index=False)
-    st.download_button("Download Standardized CSV", data=output.getvalue(), file_name="standardized_data.csv")
+    df.to_excel(output, index=False)
+    st.download_button("Download Standardized XLSX file", data=output.getvalue(), file_name="standardized_data.xlsx")
 
     if st.button("Restart"):
         reset_session_state()
