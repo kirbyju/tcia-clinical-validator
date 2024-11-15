@@ -246,6 +246,9 @@ def process_file(file_or_url, is_url=False):
         else:
             file_name = file_or_url.name  # Get the name from UploadedFile object
 
+        # Initialize other_sheets as None
+        other_sheets = None
+
         # Determine file type and read accordingly
         if file_name.lower().endswith('.csv'):
             df = pd.read_csv(file_or_url)
@@ -255,7 +258,18 @@ def process_file(file_or_url, is_url=False):
             sheet_names = excel_file.sheet_names
             if len(sheet_names) > 1:
                 selected_tab = st.selectbox("Select Sheet to Analyze", sheet_names)
+                keep_other_sheets = st.checkbox("Keep other sheets in final output", value=True)
+
+                # Read the selected sheet
                 df = pd.read_excel(file_or_url, sheet_name=selected_tab)
+
+                # If keeping other sheets, store them
+                if keep_other_sheets:
+                    other_sheets = {}
+                    other_sheet_names = [s for s in sheet_names if s != selected_tab]
+                    for sheet in other_sheet_names:
+                        other_sheets[sheet] = pd.read_excel(file_or_url, sheet_name=sheet)
+
                 proceed_to_next = st.button("Next")
             else:
                 df = pd.read_excel(file_or_url)
@@ -265,13 +279,13 @@ def process_file(file_or_url, is_url=False):
             proceed_to_next = True
         else:
             st.error("Unsupported file format. Please upload a .csv, .xlsx, or .tsv file")
-            return None, False
+            return None, False, None
 
-        return df, proceed_to_next
+        return df, proceed_to_next, other_sheets
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-        return None, False
+        return None, False, None
 
 # Main Streamlit app
 # Custom CSS to switch logo based on the user's theme preference
@@ -306,6 +320,8 @@ if 'project_short_name' not in st.session_state:
     st.session_state.project_short_name = ''
 if 'age_uom' not in st.session_state:
     st.session_state.age_uom = ''
+if 'other_sheets' not in st.session_state:
+    st.session_state.other_sheets = None
 
 # Step 1: File Upload and Import
 if st.session_state.step == 1:
@@ -313,19 +329,20 @@ if st.session_state.step == 1:
     uploaded_file = st.file_uploader("Upload your file", type=["csv", "xlsx", "tsv"])
 
     if uploaded_file:
-        df, proceed_to_next = process_file(uploaded_file)
+        df, proceed_to_next, other_sheets = process_file(uploaded_file)
     else:
         url = st.text_input("...or provide the URL of the file")
         if url:
-            df, proceed_to_next = process_file(url, is_url=True)
+            df, proceed_to_next, other_sheets = process_file(url, is_url=True)
 
     # Process results if we have them
     if 'df' in locals() and df is not None and proceed_to_next:
         st.success("File imported successfully!")
         # Remove leading and trailing spaces from all strings in the dataframe
         df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
-        # move to the next step/state
+        # Store the data and other sheets in session state
         st.session_state.df = df
+        st.session_state.other_sheets = other_sheets
         st.session_state.step = 2
         st.rerun()
 
@@ -811,12 +828,41 @@ elif st.session_state.step == 7:
     st.subheader("Step 7: Download Standardized Data")
     df = st.session_state.df
 
+    # Get the default filename based on first Project Short Name value
+    default_filename = f"{df['Project Short Name'].iloc[0]}-Clinical-Standardized.xlsx"
+
+    # Create a text input for custom filename with the default value
+    custom_filename = st.text_input(
+        "Filename:",
+        value=default_filename,
+        help="You can modify the filename if desired"
+    )
+
+    # Ensure the filename ends with .xlsx
+    if not custom_filename.endswith('.xlsx'):
+        custom_filename += '.xlsx'
+
     # Reorder columns
     df = reorder_columns(df)
-
     output = BytesIO()
-    df.to_excel(output, index=False)
-    st.download_button("Download Standardized XLSX file", data=output.getvalue(), file_name="standardized_data.xlsx")
+
+    # If we have other sheets, write them all to the Excel file
+    if st.session_state.other_sheets:
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, sheet_name='Standardized Data', index=False)
+            for sheet_name, sheet_data in st.session_state.other_sheets.items():
+                sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
+        st.info("The downloaded file will include your standardized data sheet along with all other sheets from the original file.")
+    else:
+        # Single sheet export
+        df.to_excel(output, index=False)
+
+    st.download_button(
+        "Download Standardized XLSX file",
+        data=output.getvalue(),
+        file_name=custom_filename,
+        help="Download the standardized data in Excel format"
+    )
 
     if st.button("Restart"):
         reset_session_state()
