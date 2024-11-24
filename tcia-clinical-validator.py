@@ -126,14 +126,53 @@ def validate_and_clean_data(df):
     # Convert non-age columns to strings
     df = convert_to_strings(df)
 
-    # Fix case sensitivity issues
+    # Track unique capitalization corrections
+    capitalization_fixes = {
+        'Race': set(),
+        'Ethnicity': set(),
+        'Sex at Birth': set()
+    }
+
+    # Handle Race column (special case for multiple values)
+    if 'Race' in df.columns:
+        def fix_race_values(race_str):
+            if pd.isna(race_str):
+                return race_str
+            fixed_races = []
+            for race in str(race_str).split(';'):
+                race = race.strip()
+                correct_race = get_correct_value(race, permissible_race)
+                if correct_race and correct_race != race:
+                    capitalization_fixes['Race'].add((race, correct_race))
+                fixed_races.append(correct_race if correct_race else race)
+            return ';'.join(sorted(set(fixed_races)))
+
+        df['Race'] = df['Race'].apply(fix_race_values)
+
+    # Handle Ethnicity and Sex at Birth
     for col in ['Ethnicity', 'Sex at Birth']:
         if col in df.columns:
-            df[col] = df[col].str.title().str.strip()
+            valid_values = permissible_ethnicity if col == 'Ethnicity' else permissible_sex_at_birth
 
-    # Handle multiple Race values
-    if 'Race' in df.columns:
-        df['Race'] = df['Race'].apply(lambda x: ';'.join(sorted(set([r.strip().title() for r in str(x).split(';')]))))
+            def fix_value(val):
+                if pd.isna(val):
+                    return val
+                correct_val = get_correct_value(val, valid_values)
+                if correct_val and correct_val != val:
+                    capitalization_fixes[col].add((val, correct_val))
+                return correct_val if correct_val else val
+
+            df[col] = df[col].apply(fix_value)
+
+    # Report unique capitalization fixes
+    for col, fixes in capitalization_fixes.items():
+        if fixes:
+            if col == 'Race':
+                fix_details = [f"'{old}' → '{new}'" for old, new in fixes]
+                report.append(f"Automatically corrected capitalization of {len(fixes)} unique Race values: {', '.join(fix_details)}")
+            else:
+                fix_details = [f"'{old}' → '{new}'" for old, new in fixes]
+                report.append(f"Automatically corrected capitalization of {len(fixes)} unique values in {col} column: {', '.join(fix_details)}")
 
     # Drop duplicate rows and report their original row numbers
     duplicate_rows = df[df.duplicated()].index.tolist()
@@ -142,6 +181,52 @@ def validate_and_clean_data(df):
         report.append(f"Removed {len(duplicate_rows)} duplicate rows: {duplicate_rows}")
 
     return df, report
+
+# Validate numeric columns (updated to handle nulls)
+def validate_numeric_columns(df, numeric_columns):
+    numeric_issues = {}
+
+    for col in numeric_columns:
+        if col in df.columns:
+            # Convert empty strings and whitespace-only strings to NaN
+            df[col] = df[col].replace(r'^\s*$', np.nan, regex=True)
+
+            # Count null values (including NaN, None, and empty strings)
+            null_mask = df[col].isna()
+            null_count = null_mask.sum()
+
+            # Find non-numeric values (excluding nulls)
+            non_null_mask = ~null_mask
+            non_null_values = df[col][non_null_mask]
+            numeric_mask = pd.to_numeric(non_null_values, errors='coerce').notna()
+            non_numeric = df[col][non_null_mask & ~numeric_mask]
+
+            if null_count > 0 or len(non_numeric) > 0:
+                issues = {}
+                if null_count > 0:
+                    issues['null_count'] = null_count
+                    # Store the row indices where nulls occur
+                    issues['null_indices'] = df[null_mask].index.tolist()
+                if len(non_numeric) > 0:
+                    issues['invalid_values'] = non_numeric
+                numeric_issues[col] = issues
+
+    return numeric_issues
+
+def validate_categorical_column(df, column, valid_values):
+    """
+    Validates a categorical column, taking into account previous capitalization fixes.
+    Returns a Series of boolean values where False indicates an invalid value.
+    """
+    def is_valid(value):
+        if pd.isna(value):
+            return True
+        if column == 'Race':
+            return all(get_correct_value(race.strip(), valid_values) is not None
+                      for race in str(value).split(';'))
+        return get_correct_value(value, valid_values) is not None
+
+    return df[column].apply(is_valid)
 
 # helper function to validate Project Short Name
 def is_valid_project_short_name(name):
@@ -153,18 +238,13 @@ def get_correct_column_name(col):
     return lower_allowable.get(col.lower(), col)
 
 # helper function to get correct capitalization for categorical values
-### Not implemented anywhere -- do we need to re-add this to check for places where values are just capitalized incorrectly?
 def get_correct_value(value, valid_values):
+    """
+    Find the correctly capitalized value from valid_values, matching case-insensitively.
+    Returns None if no match is found.
+    """
     lower_valid = {v.lower(): v for v in valid_values}
-    return lower_valid.get(value.lower(), value)
-
-# Function to clean and convert "Age at" columns to numeric
-### Not implemented anywhere -- do we need to re-add this?  Maybe just alert user if non-numeric found and map values?
-def clean_age_columns(df, age_columns):
-    for col in age_columns:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors='coerce')  # Convert to numeric, set non-numeric to NaN
-    return df
+    return lower_valid.get(str(value).lower())
 
 def get_prioritized_options(value, valid_options, n_suggestions=5):
     """
@@ -348,16 +428,16 @@ if st.session_state.step == 1:
 
 # Step 2: Analyze and Map Columns
 elif st.session_state.step == 2:
-    st.subheader("Step 2: Map column names to Common Data Elements")
+    st.subheader("Step 2: Map column names to TCIA column names")
     df = st.session_state.df
 
     # Clean and validate the data first
-    df, validation_report = validate_and_clean_data(df)
+    #df, validation_report = validate_and_clean_data(df)
 
     # Display any cleaning operations that were performed
-    if validation_report:
-        for message in validation_report:
-            st.info(message)
+    #if validation_report:
+    #    for message in validation_report:
+    #        st.info(message)
 
     # Automatically correct capitalization for columns that match allowable columns
     columns_to_rename = {}
@@ -388,7 +468,7 @@ elif st.session_state.step == 2:
 
     if unexpected_columns:
         if not st.session_state.mapping_applied:
-            st.markdown("### The following unexpected columns were found:")
+            st.warning("The following unexpected columns were found.")
             column_mapping = {}
             for col in unexpected_columns:
                 option = st.selectbox(
@@ -460,7 +540,7 @@ elif st.session_state.step == 2:
 
 # Step 3: Check Required Columns and Validate Project Short Name
 elif st.session_state.step == 3:
-    st.subheader("Step 3: Check Required Columns and Validate Data")
+    st.subheader("Step 3: Check for Minimum Required Columns")
     df = st.session_state.df
 
     # Convert non-age columns to strings
@@ -511,8 +591,8 @@ elif st.session_state.step == 3:
                             project_short_name_valid = False
                     else:
                         project_short_name_valid = False
-            else:
-                st.success("All Project Short Names are valid.")
+            #else:
+                #st.success("All Project Short Names are valid.")
 
         # Handle missing Age UOM
         if missing_age_uom:
@@ -524,6 +604,8 @@ elif st.session_state.step == 3:
                 age_uom_valid = False
         else:
             age_uom_valid = True
+
+        st.success("Column validation successful.")
 
         # Single "Next step" button for both updating and continuing
         if st.button("Next step"):
@@ -553,26 +635,24 @@ elif st.session_state.step == 4:
     st.subheader("Step 4: Validate Race, Ethnicity, and Age Data")
     df = st.session_state.df
 
-    # Dictionary to store all corrections
+    # Clean and validate the data
+    df, validation_report = validate_and_clean_data(df)
+
+    # Display any cleaning operations that were performed
+    if validation_report:
+        for message in validation_report:
+            st.info(message)
+
+    # Dictionary to store all corrections needed for invalid values
     all_corrections = {}
 
-    # Function to apply all corrections
-    def apply_corrections():
-        for col, correct_dict in all_corrections.items():
-            df[col] = df[col].replace(correct_dict)
-        st.session_state.df = df
-        st.success("Corrections applied successfully!")
-        st.rerun()
-
-    # 1. Validate Race column (special handling for multiple values)
+    # 1. Validate Race column (after capitalization fixes)
     if 'Race' in df.columns:
-        invalid_races = df['Race'].apply(lambda x: any(race.strip() not in permissible_race
-                                                     for race in str(x).split(';')
-                                                     if race.strip()))
+        invalid_races = ~validate_categorical_column(df, 'Race', permissible_race)
         invalid_race_values = df[invalid_races]['Race'].unique()
 
         if len(invalid_race_values) > 0:
-            st.markdown("#### Invalid values found in Race:")
+            st.markdown("#### Invalid Race values found (after capitalization fixes):")
             race_corrections = {}
             for value in invalid_race_values:
                 st.write(f"Invalid value: '{value}'")
@@ -587,7 +667,7 @@ elif st.session_state.step == 4:
             if race_corrections:
                 all_corrections['Race'] = race_corrections
 
-    # 2. Validate categorical columns (excluding Primary Diagnosis and Primary Site)
+    # 2. Validate other categorical columns (after capitalization fixes)
     categorical_columns = {
         'Ethnicity': permissible_ethnicity,
         'Sex at Birth': permissible_sex_at_birth,
@@ -596,9 +676,11 @@ elif st.session_state.step == 4:
 
     for col, valid_values in categorical_columns.items():
         if col in df.columns:
-            invalid_values = df[~df[col].isin(valid_values)][col].unique()
+            invalid_mask = ~validate_categorical_column(df, col, valid_values)
+            invalid_values = df[invalid_mask][col].unique()
+
             if len(invalid_values) > 0:
-                st.markdown(f"#### Invalid values found in {col}:")
+                st.markdown(f"#### Invalid {col} values found (after capitalization fixes):")
                 corrections = {}
                 for value in invalid_values:
                     correct_value = st.selectbox(
@@ -616,39 +698,70 @@ elif st.session_state.step == 4:
     numeric_columns = ['Age at Diagnosis', 'Age at Enrollment',
                       'Age at Surgery', 'Age at Earliest Imaging']
 
-    for col in numeric_columns:
-        if col in df.columns:
-            non_numeric = df[df[col].notna() &
-                           pd.to_numeric(df[col], errors='coerce').isna()][col]
-            if not non_numeric.empty:
-                st.markdown(f"#### Non-numeric values found in {col}:")
-                numeric_corrections = {}
-                for idx, value in non_numeric.items():
+    # Only validate numeric columns if we're not in the process of applying corrections
+    if 'applying_corrections' not in st.session_state:
+        numeric_issues = validate_numeric_columns(df, numeric_columns)
+
+        for col, issues in numeric_issues.items():
+            st.markdown(f"#### Issues found in {col}:")
+
+            # Report null values with more detail
+            if 'null_count' in issues:
+                null_count = issues['null_count']
+                null_indices = issues['null_indices']
+                st.warning(f"{null_count} empty or null values found in rows: {', '.join(map(str, null_indices))}. <br><br>If this is unexpected, please fix your spreadsheet before trying again.")
+
+            # Handle invalid non-null values
+            if 'invalid_values' in issues:
+                invalid_values = issues['invalid_values']
+                st.error(f"{len(invalid_values)} non-numeric values found")
+
+                corrections = {}
+                for idx, value in invalid_values.items():
                     correct_value = st.text_input(
-                        f"Correct value for '{value}' in {col} (row {idx}):",
+                        f"Correct value for '{value}' in row {idx}:",
                         key=f"{col}_{idx}"
                     )
                     if correct_value:
                         try:
                             float(correct_value)
-                            numeric_corrections[value] = correct_value
+                            corrections[value] = correct_value
                         except ValueError:
                             st.error(f"'{correct_value}' is not a valid numeric value.")
 
-                if numeric_corrections:
-                    all_corrections[col] = numeric_corrections
+                if corrections:
+                    all_corrections[col] = corrections
+
+            if not any(issues):
+                st.success(f"All values in {col} are valid!")
 
     # Apply corrections button
+    # Function to apply all corrections
+    def apply_corrections():
+        st.session_state.applying_corrections = True
+        for col, correct_dict in all_corrections.items():
+            df[col] = df[col].replace(correct_dict)
+        st.session_state.df = df
+        st.success("Corrections applied successfully!")
+        st.rerun()
+
     if all_corrections:
         if st.button("Apply All Corrections"):
             apply_corrections()
-    else:
-        st.success("All race, ethnicity and age data is valid!")
+    #else:
+        # Only show success message if we're not in the process of applying corrections
+        #if 'applying_corrections' not in st.session_state:
+        #    st.success("All race, ethnicity and age data is valid!")
+
+    # Clear the applying_corrections flag if it exists
+    if 'applying_corrections' in st.session_state:
+        del st.session_state.applying_corrections
 
     # Only show "Next step" button if no corrections are needed
     remaining_corrections = {k: v for k, v in all_corrections.items()
                            if not k.startswith('skip_')}
     if not remaining_corrections:
+        st.success("All race, ethnicity and age data is valid!")
         if st.button("Next step"):
             # Clear skip flags for next run
             for key in list(st.session_state.keys()):
@@ -837,6 +950,7 @@ elif st.session_state.step == 7:
         value=default_filename,
         help="You can modify the filename if desired"
     )
+    st.markdown("You must press ENTER after setting a new file name.")
 
     # Ensure the filename ends with .xlsx
     if not custom_filename.endswith('.xlsx'):
