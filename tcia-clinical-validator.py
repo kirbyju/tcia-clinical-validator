@@ -401,11 +401,6 @@ if st.session_state.step == 1:
                 selected_tab = st.selectbox("Select Sheet to Analyze", sheet_names)
                 if selected_tab:
                     df = pd.read_excel(data, sheet_name=selected_tab)
-                    # Exclude the selected sheet from other_sheets
-                    other_sheet_names = [s for s in sheet_names if s != selected_tab]
-                    if other_sheet_names:
-                         if st.checkbox("Keep other sheets in final output", value=True):
-                            other_sheets = {sheet: pd.read_excel(data, sheet_name=sheet) for sheet in other_sheet_names}
             else:  # This means it's a CSV or TSV file
                 df = data
 
