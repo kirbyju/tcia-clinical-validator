@@ -322,50 +322,27 @@ def process_file(file_or_url, is_url=False):
             file_name = file_or_url
             if not any(file_name.lower().endswith(ext) for ext in ['.csv', '.xlsx', '.tsv']):
                 st.error("URL must point to a .csv, .xlsx, or .tsv file")
-                return None, False
+                return None, None
         else:
             file_name = file_or_url.name  # Get the name from UploadedFile object
 
-        # Initialize other_sheets as None
-        other_sheets = None
-
-        # Determine file type and read accordingly
         if file_name.lower().endswith('.csv'):
             df = pd.read_csv(file_or_url)
-            proceed_to_next = True
+            return df, None
         elif file_name.lower().endswith('.xlsx'):
             excel_file = pd.ExcelFile(file_or_url)
             sheet_names = excel_file.sheet_names
-            if len(sheet_names) > 1:
-                selected_tab = st.selectbox("Select Sheet to Analyze", sheet_names)
-                keep_other_sheets = st.checkbox("Keep other sheets in final output", value=True)
-
-                # Read the selected sheet
-                df = pd.read_excel(file_or_url, sheet_name=selected_tab)
-
-                # If keeping other sheets, store them
-                if keep_other_sheets:
-                    other_sheets = {}
-                    other_sheet_names = [s for s in sheet_names if s != selected_tab]
-                    for sheet in other_sheet_names:
-                        other_sheets[sheet] = pd.read_excel(file_or_url, sheet_name=sheet)
-
-                proceed_to_next = st.button("Next")
-            else:
-                df = pd.read_excel(file_or_url)
-                proceed_to_next = True
+            return excel_file, sheet_names
         elif file_name.lower().endswith('.tsv'):
             df = pd.read_csv(file_or_url, delimiter='\t')
-            proceed_to_next = True
+            return df, None
         else:
             st.error("Unsupported file format. Please upload a .csv, .xlsx, or .tsv file")
-            return None, False, None
-
-        return df, proceed_to_next, other_sheets
+            return None, None
 
     except Exception as e:
         st.error(f"Error processing file: {str(e)}")
-        return None, False, None
+        return None, None
 
 # Main Streamlit app
 # Custom CSS to switch logo based on the user's theme preference
@@ -406,17 +383,34 @@ if 'other_sheets' not in st.session_state:
 # Step 1: File Upload and Import
 if st.session_state.step == 1:
     st.subheader("Step 1: Upload your CSV, XLSX, or TSV file")
-    uploaded_file = st.file_uploader("Upload your file", type=["csv", "xlsx", "tsv"])
 
-    if uploaded_file:
-        df, proceed_to_next, other_sheets = process_file(uploaded_file)
-    else:
-        url = st.text_input("...or provide the URL of the file")
-        if url:
-            df, proceed_to_next, other_sheets = process_file(url, is_url=True)
+    # Initialize variables
+    df = None
+    other_sheets = None
+    proceed_to_next = False
+
+    uploaded_file = st.file_uploader("Upload your file", type=["csv", "xlsx", "tsv"])
+    url = st.text_input("...or provide the URL of the file")
+
+    file_input = uploaded_file or url
+    if file_input:
+        data, sheet_names = process_file(file_input, is_url=bool(url))
+
+        if data is not None:
+            if sheet_names:  # This means it's an Excel file
+                selected_tab = st.selectbox("Select Sheet to Analyze", sheet_names)
+                if selected_tab:
+                    df = pd.read_excel(data, sheet_name=selected_tab)
+            else:  # This means it's a CSV or TSV file
+                df = data
+
+            if df is not None:
+                st.write("File Preview (first 10 rows):")
+                st.dataframe(df.head(10))
+                proceed_to_next = st.button("Next")
 
     # Process results if we have them
-    if 'df' in locals() and df is not None and proceed_to_next:
+    if proceed_to_next and df is not None:
         st.success("File imported successfully!")
         # Remove leading and trailing spaces from all strings in the dataframe
         df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
@@ -942,7 +936,7 @@ elif st.session_state.step == 7:
     df = st.session_state.df
 
     # Get the default filename based on first Project Short Name value
-    default_filename = f"{df['Project Short Name'].iloc[0]}-Clinical-Standardized.xlsx"
+    default_filename = f"{df['Project Short Name'].iloc[0]}-Clinical-Standardized.tsv"
 
     # Create a text input for custom filename with the default value
     custom_filename = st.text_input(
@@ -952,30 +946,21 @@ elif st.session_state.step == 7:
     )
     st.markdown("You must press ENTER after setting a new file name.")
 
-    # Ensure the filename ends with .xlsx
-    if not custom_filename.endswith('.xlsx'):
-        custom_filename += '.xlsx'
+    # Ensure the filename ends with .tsv
+    if not custom_filename.endswith('.tsv'):
+        custom_filename += '.tsv'
 
     # Reorder columns
     df = reorder_columns(df)
-    output = BytesIO()
 
-    # If we have other sheets, write them all to the Excel file
-    if st.session_state.other_sheets:
-        with pd.ExcelWriter(output, engine='openpyxl') as writer:
-            df.to_excel(writer, sheet_name='Standardized Data', index=False)
-            for sheet_name, sheet_data in st.session_state.other_sheets.items():
-                sheet_data.to_excel(writer, sheet_name=sheet_name, index=False)
-        st.info("The downloaded file will include your standardized data sheet along with all other sheets from the original file.")
-    else:
-        # Single sheet export
-        df.to_excel(output, index=False)
+    # Convert dataframe to TSV
+    output = df.to_csv(sep='\t', index=False)
 
     st.download_button(
-        "Download Standardized XLSX file",
-        data=output.getvalue(),
+        "Download Standardized TSV file",
+        data=output,
         file_name=custom_filename,
-        help="Download the standardized data in Excel format"
+        help="Download the standardized data in TSV format"
     )
 
     if st.button("Restart"):
