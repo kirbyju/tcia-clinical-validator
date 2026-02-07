@@ -2,53 +2,43 @@
 
 ## Metadata
 name: TCIA Remapping Skill
-description: Guide users through remapping their data to the TCIA imaging submission data model and generating standardized TSVs.
+description: Guide users through remapping their data to the TCIA imaging submission data model and generating standardized TSVs using ontologies and a tiered conversational flow.
 
 ## Overview
-This Skill assists users in transforming their original clinical and imaging research data into the standardized TCIA (The Cancer Imaging Archive) data model. It facilitates the mapping of source columns to target properties across multiple entities (e.g., Subject, Diagnosis, Radiology) and ensures compliance with permissible values for key fields.
+This Skill assists users in transforming their original clinical and imaging research data into the standardized TCIA (The Cancer Imaging Archive) data model. It leverages medical ontologies (NCIt, UBERON, SNOMED) and a structured conversational flow to ensure high-quality data mapping and standardization.
 
 ## Target Data Model
 The skill target consists of 12 potential TSV files defined in the `resources/schema.json` file:
-- Program
-- Dataset
-- Subject
-- Procedure
-- File
-- Diagnosis
-- Investigator
-- Related_Work
-- Radiology
-- Histopathology
-- Multiplex_Imaging
-- Multiplex_Channels
+- Program, Dataset, Subject, Procedure, File, Diagnosis, Investigator, Related_Work, Radiology, Histopathology, Multiplex_Imaging, Multiplex_Channels.
 
-## How to use this Skill
-1. **Initiation**: Ask the user to upload their source data files (CSV, XLSX, or TSV).
-2. **Analysis**: Analyze the uploaded files to understand the existing columns and data structure.
-3. **Column Mapping**: Propose a mapping between the source columns and the properties defined in `resources/schema.json`. Ask the user to confirm or adjust the mapping.
-4. **Value Standardization**:
-    - For `race`, `ethnicity`, and `sex_at_birth`, ensure values match the permissible lists in `resources/permissible_values.json`.
-    - For `primary_diagnosis` and `primary_site`, perform fuzzy matching against the lists in `resources/permissible_values.json` and ask the user to confirm corrections.
-    - Handle "NOS" (Not Otherwise Specified) by suggesting the most appropriate standard term if a direct match isn't found.
-5. **Transformation**: Apply any necessary transformations (e.g., ensuring numeric fields are valid, formatting dates).
-6. **Output Generation**: Once remapping is confirmed, generate and provide the standardized TSV files for the user to download.
+## Conversational Workflow
+To minimize user effort, the skill follows a tiered approach:
+
+### Phase 1: Structure Mapping & Organization
+1. **Initiation**: Ask the user to upload their source data files.
+2. **Analysis**: Identify existing columns and how they relate to the target entities.
+3. **Summary Recommendation**: Provide a concise summary of the proposed mapping (e.g., "Source 'PtID' -> Target 'subject_id'").
+4. **Quick Approval**: Allow the user to approve the entire structure mapping at once (e.g., "Everything looks good!") or flag specific items for discussion (e.g., "Discuss items 2 and 5").
+
+### Phase 2: Value Standardization (Permissible Values)
+Once the structure is confirmed, address data content one TSV/column at a time:
+1. **Batch Validation**: For each confirmed column, identify values that do not match the permissible lists in `resources/permissible_values.json`.
+2. **Ontology-Enhanced Matching**: Use both fuzzy matching and knowledge of medical ontologies (NCIt, SNOMED, UBERON) to suggest corrections.
+3. **Focussed Discussion**: Present a summary of auto-corrected values for quick approval, and list only the "hard" cases that need manual user intervention.
+4. **Handling "NOS"**: If a value is "NOS" (Not Otherwise Specified), suggest the most appropriate standard term from the ontology.
 
 ## Key Rules
-- Always refer to `resources/schema.json` for the authoritative property names and requirements.
-- Prioritize required fields (marked "R" in the schema).
-- If a value doesn't match a permissible list, suggest the closest match and ask for confirmation.
-- If multiple source files are provided, identify how they relate to the different target TSVs.
+- **Ontology Integration**: When a direct match is missing, use NCIt or UBERON codes (found in `permissible_values.json`) to verify if a user's term is a synonym of a standard term.
+- **Tiered Interaction**: Always provide a summary first. Don't ask about 100 values one by one; group them.
+- **Required Fields**: Prioritize fields marked "R" in `schema.json`.
 
 ## Examples
-### Example 1: Mapping Race
-Source data has "Caucasian".
-Claude: "I see 'Caucasian' in your Race column. The standard TCIA value is 'White'. Should I remap this for you?"
-
-### Example 2: Mapping Primary Diagnosis
-Source data has "Glioblastoma Multiforme".
-Claude: "I found 'Glioblastoma Multiforme' in your diagnosis column. The standard value in our model is 'Glioblastoma'. Should I use that?"
+### Example: Tiered Approval
+Claude: "I've mapped your 15 columns to the Subject and Diagnosis TSVs. Here is the summary: [Table]. Does this look good, or should we adjust specific mappings?"
+User: "Looks good, proceed to values."
+Claude: "Great. In 'primary_site', I've auto-matched 90% of your values. I have 3 values that need your attention: 'Lung, NOS', 'Chest wall', and 'Unknown'. Recommendations: [List]. How should we handle these?"
 
 ## Resources
-- `resources/schema.json`: The complete property definitions for all target TSVs.
-- `resources/permissible_values.json`: The lists of valid values for key categorical fields.
-- `remap_helper.py`: A Python script providing utility functions for fuzzy matching, validation, and splitting data according to the schema.
+- `resources/schema.json`: Complete property definitions.
+- `resources/permissible_values.json`: Valid values with ontology metadata (NCIt, UBERON).
+- `remap_helper.py`: Utility script for fuzzy matching and data splitting.
