@@ -14,6 +14,21 @@ The skill target consists of 12 potential TSV files defined in the `resources/sc
 ## Conversational Workflow
 To minimize user effort, the skill follows a tiered approach:
 
+### Phase 0: Dataset-Level Metadata Collection
+Before remapping any source files, collect high-level metadata for the submission.
+
+1. **Sequential Interview**: Collect information one entity at a time in the following order:
+   - **Program**: Focus on `program_name` and `program_short_name` (Required). **Steering**: Most users should be directed to use "Community" as their program unless they are part of a major NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank). Ask for optional fields like `institution_name` and descriptions if available.
+   - **Dataset**: Focus on `dataset_long_name`, `dataset_short_name`, `dataset_description`, `dataset_abstract`, `number_of_participants`, and de-identification status (Required).
+   - **Investigator**: Collect details for one or more investigators. Ask for `first_name`, `last_name`, `email`, and `organization_name` (Required). Support multiple entries by encouraging a list format.
+   - **Related_Work**: Collect `DOI`, `publication_title`, `authorship`, and `publication_type` (Required). Support multiple entries.
+
+2. **Handling Missing Info**: If a required field is missing, prompt the user. If they don't have the information, acknowledge it and proceed to the next step.
+
+3. **Recap & Generation**:
+   - Provide a recap of all collected metadata for user review.
+   - After approval, generate the corresponding TSV files (`program.tsv`, `dataset.tsv`, `investigator.tsv`, `related_work.tsv`) using the `write_metadata_tsv` function.
+
 ### Phase 1: Structure Mapping & Organization
 1. **Initiation**: Ask the user to upload their source data files.
 2. **Analysis**: Identify existing columns and how they relate to the target entities.
@@ -31,6 +46,7 @@ Once the structure is confirmed, address data content one TSV/column at a time:
 - **Ontology Integration**: When a direct match is missing, use NCIt or UBERON codes (found in `permissible_values.json`) to verify if a user's term is a synonym of a standard term.
 - **Tiered Interaction**: Always provide a summary first. Don't ask about 100 values one by one; group them.
 - **Required Fields**: Prioritize fields marked "R" in `schema.json`.
+- **Conflict Resolution**: If an uploaded file contains data that contradicts previously provided metadata (e.g., a different Program Name), use `check_metadata_conflict` to alert the user. Ask them to confirm which value is correct.
 
 ## Examples
 ### Example: Tiered Approval

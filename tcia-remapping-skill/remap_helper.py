@@ -85,6 +85,61 @@ def split_data_by_schema(df, column_mapping, schema):
             results[sheet_name] = new_df
     return results
 
+def write_metadata_tsv(entity_name, data, schema, output_dir='.'):
+    """
+    data: list of dicts or a single dict
+    schema: the full schema dict
+    """
+    if isinstance(data, dict):
+        data = [data]
+
+    properties = [p['Property'] for p in schema.get(entity_name, [])]
+    if not properties:
+        return None
+
+    df = pd.DataFrame(data)
+    # Ensure all columns exist and are in order
+    for prop in properties:
+        if prop not in df.columns:
+            df[prop] = None
+
+    df = df[properties]
+    filename = f"{entity_name.lower()}.tsv"
+    filepath = os.path.join(output_dir, filename)
+    df.to_csv(filepath, sep='\t', index=False)
+    return filepath
+
+def check_metadata_conflict(initial_metadata, df, column_mapping):
+    """
+    Checks if values in df (after mapping) conflict with initial_metadata.
+    initial_metadata: dict of {entity_name: [list_of_dicts]}
+    """
+    conflicts = []
+    for entity_name, meta_list in initial_metadata.items():
+        if not meta_list:
+            continue
+
+        # We focus on Program and Dataset which are usually singular per submission
+        if entity_name not in ["Program", "Dataset"]:
+            continue
+
+        meta_dict = meta_list[0] # Assume one for now
+
+        for target_col, source_col in column_mapping.items():
+            if target_col in meta_dict:
+                meta_val = str(meta_dict[target_col]).strip()
+                if source_col in df.columns:
+                    unique_vals = df[source_col].dropna().unique()
+                    for val in unique_vals:
+                        if str(val).strip() != meta_val:
+                            conflicts.append({
+                                'entity': entity_name,
+                                'property': target_col,
+                                'initial_value': meta_val,
+                                'new_value': val
+                            })
+    return conflicts
+
 def main():
     print("TCIA Remap Helper loaded with metadata support.")
 
