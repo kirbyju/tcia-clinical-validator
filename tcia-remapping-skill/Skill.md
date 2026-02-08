@@ -18,7 +18,7 @@ To minimize user effort, the skill follows a tiered approach:
 Before remapping any source files, collect high-level metadata for the submission.
 
 1. **Sequential Interview**: Collect information one entity at a time in the following order:
-   - **Program**: Focus on `program_name` and `program_short_name` (Required). Ask for optional fields like `institution_name` and descriptions if available.
+   - **Program**: Focus on `program_name` and `program_short_name` (Required). **Steering**: Most users should be directed to use "Community" as their program unless they are part of a major NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank). Ask for optional fields like `institution_name` and descriptions if available.
    - **Dataset**: Focus on `dataset_long_name`, `dataset_short_name`, `dataset_description`, `dataset_abstract`, `number_of_participants`, and de-identification status (Required).
    - **Investigator**: Collect details for one or more investigators. Ask for `first_name`, `last_name`, `email`, and `organization_name` (Required). Support multiple entries by encouraging a list format.
    - **Related_Work**: Collect `DOI`, `publication_title`, `authorship`, and `publication_type` (Required). Support multiple entries.
