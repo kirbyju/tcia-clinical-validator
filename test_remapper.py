@@ -43,6 +43,7 @@ def test_phase0_metadata():
         'dataset_description': 'A test dataset for validation',
         'dataset_abstract': 'Test abstract',
         'number_of_participants': 100,
+        # Note: 'data_has_been_de-identified' contains a hyphen to match TCIA schema specification
         'data_has_been_de-identified': 'Yes'
     }
     

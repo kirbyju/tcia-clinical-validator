@@ -183,16 +183,28 @@ if st.session_state.phase == 0:
                 value=st.session_state.metadata['Dataset'][0].get('dataset_abstract', '') if st.session_state.metadata['Dataset'] else "",
                 help="Short description for public pages"
             )
+            # Calculate default value for number of participants
+            default_participant_count = 1
+            if st.session_state.metadata['Dataset'] and 'number_of_participants' in st.session_state.metadata['Dataset'][0]:
+                default_participant_count = st.session_state.metadata['Dataset'][0]['number_of_participants']
+            
             number_of_participants = st.number_input(
                 "Number of Participants (Required)*",
                 min_value=1,
-                value=st.session_state.metadata['Dataset'][0]['number_of_participants'] if st.session_state.metadata['Dataset'] and 'number_of_participants' in st.session_state.metadata['Dataset'][0] else 1,
+                value=default_participant_count,
                 help="Total number of study participants"
             )
+            
+            # Calculate default index for de-identification dropdown
+            deidentified_index = 0  # Default to "Yes"
+            if st.session_state.metadata['Dataset']:
+                if st.session_state.metadata['Dataset'][0].get('data_has_been_de-identified') == "No":
+                    deidentified_index = 1
+            
             data_deidentified = st.selectbox(
                 "Data Has Been De-identified (Required)*",
                 options=["Yes", "No"],
-                index=0 if st.session_state.metadata['Dataset'] and st.session_state.metadata['Dataset'][0].get('data_has_been_de-identified') == "Yes" else 1 if st.session_state.metadata['Dataset'] else 0
+                index=deidentified_index
             )
             adult_or_childhood = st.selectbox(
                 "Adult or Childhood Study (Optional)",
@@ -481,8 +493,11 @@ elif st.session_state.phase == 1:
                     for conflict in conflicts:
                         st.write(f"- {conflict['entity']}.{conflict['property']}: Initial='{conflict['initial_value']}' vs New='{conflict['new_value']}'")
                     st.write("Please review and update either your Phase 0 metadata or your uploaded data.")
-                
-                if st.button("➡️ Proceed to Phase 2"):
+            
+            # Show proceed button if mapping is approved
+            if st.session_state.structure_approved:
+                st.markdown("---")
+                if st.button("➡️ Proceed to Phase 2", type="primary", use_container_width=True):
                     st.session_state.phase = 2
                     st.rerun()
         
