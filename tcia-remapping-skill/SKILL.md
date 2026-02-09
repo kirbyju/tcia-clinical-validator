@@ -1,8 +1,9 @@
-# TCIA Remapping Skill
-
-## Metadata
+---
 name: TCIA Remapping Skill
 description: Guide users through remapping their data to the TCIA imaging submission data model and generating standardized TSVs using ontologies and a tiered conversational flow.
+---
+
+# TCIA Remapping Skill
 
 ## Overview
 This Skill assists users in transforming their original clinical and imaging research data into the standardized TCIA (The Cancer Imaging Archive) data model. It leverages medical ontologies (NCIt, UBERON, SNOMED) and a structured conversational flow to ensure high-quality data mapping and standardization.
