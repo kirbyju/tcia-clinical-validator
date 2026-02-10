@@ -4,6 +4,7 @@ import numpy as np
 from io import BytesIO
 import re
 from difflib import SequenceMatcher
+from functools import partial
 
 st.set_page_config(page_title="TCIA Clinical Data Validator")
 
@@ -69,9 +70,16 @@ def reset_session_state():
 
 # Function to read and process permissible value lists for primary diagnosis and primary site
 def load_permissible_values(file_path):
+    import os
     try:
+        if not os.path.exists(file_path):
+            st.error(f"Required file not found: {file_path}. Please ensure the file exists in the application directory.")
+            return []
         df = pd.read_excel(file_path)
         # Assuming 'Permissible Value' is the column name
+        if 'Permissible Value' not in df.columns:
+            st.error(f"Required column 'Permissible Value' not found in {file_path}")
+            return []
         values = df['Permissible Value'].dropna().unique().tolist()
         # Sort values for easier lookup
         return sorted(values)
@@ -103,13 +111,6 @@ permissible_sex_at_birth = [
     "None of these describe me", "Prefer not to answer", "Unknown"
 ]
 permissible_age_uom = ['Day', 'Month', 'Year']
-
-# Conversion factors for Age UOM
-age_uom_factors = {
-    'Day': 1 / 365,
-    'Month': 1 / 12,
-    'Year': 1
-}
 
 # convert non-age columns to strings
 def convert_to_strings(df):
@@ -154,15 +155,15 @@ def validate_and_clean_data(df):
         if col in df.columns:
             valid_values = permissible_ethnicity if col == 'Ethnicity' else permissible_sex_at_birth
 
-            def fix_value(val):
+            def fix_value(val, valid_vals, column):
                 if pd.isna(val):
                     return val
-                correct_val = get_correct_value(val, valid_values)
+                correct_val = get_correct_value(val, valid_vals)
                 if correct_val and correct_val != val:
-                    capitalization_fixes[col].add((val, correct_val))
+                    capitalization_fixes[column].add((val, correct_val))
                 return correct_val if correct_val else val
 
-            df[col] = df[col].apply(fix_value)
+            df[col] = df[col].apply(partial(fix_value, valid_vals=valid_values, column=col))
 
     # Report unique capitalization fixes
     for col, fixes in capitalization_fixes.items():
@@ -752,9 +753,7 @@ elif st.session_state.step == 4:
         del st.session_state.applying_corrections
 
     # Only show "Next step" button if no corrections are needed
-    remaining_corrections = {k: v for k, v in all_corrections.items()
-                           if not k.startswith('skip_')}
-    if not remaining_corrections:
+    if not all_corrections:
         st.success("All race, ethnicity and age data is valid!")
         if st.button("Next step"):
             # Clear skip flags for next run
