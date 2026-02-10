@@ -5,6 +5,7 @@ from io import BytesIO
 import re
 from difflib import SequenceMatcher
 from functools import partial
+import os
 
 st.set_page_config(page_title="TCIA Clinical Data Validator")
 
@@ -70,7 +71,6 @@ def reset_session_state():
 
 # Function to read and process permissible value lists for primary diagnosis and primary site
 def load_permissible_values(file_path):
-    import os
     try:
         if not os.path.exists(file_path):
             st.error(f"Required file not found: {file_path}. Please ensure the file exists in the application directory.")
