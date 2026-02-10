@@ -70,19 +70,32 @@ def validate_dataframe(df, schema_name, schema, permissible_values):
     return report, corrections
 
 def split_data_by_schema(df, column_mapping, schema):
+    """
+    Split source dataframe into target entities based on column mapping.
+    column_mapping can be in format:
+    - {"property": "source_col"} or
+    - {"Entity.property": "source_col"}
+    """
     results = {}
     for sheet_name, properties in schema.items():
         target_cols = [p['Property'] for p in properties]
-        mapped_target_cols = [tc for tc in target_cols if tc in column_mapping]
-
-        if mapped_target_cols:
-            new_df = pd.DataFrame()
-            for tc in mapped_target_cols:
-                source_col = column_mapping[tc]
-                if source_col in df.columns:
-                    new_df[tc] = df[source_col]
+        new_df = pd.DataFrame()
+        
+        for prop in target_cols:
+            # Check both formats: "property" and "Entity.property"
+            source_col = None
+            if prop in column_mapping:
+                source_col = column_mapping[prop]
+            elif f"{sheet_name}.{prop}" in column_mapping:
+                source_col = column_mapping[f"{sheet_name}.{prop}"]
+            
+            if source_col and source_col in df.columns:
+                new_df[prop] = df[source_col]
+        
+        if not new_df.empty:
             new_df = new_df.drop_duplicates()
             results[sheet_name] = new_df
+    
     return results
 
 def write_metadata_tsv(entity_name, data, schema, output_dir='.'):
