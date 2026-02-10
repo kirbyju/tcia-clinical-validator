@@ -3,6 +3,7 @@ import pandas as pd
 import json
 import os
 import sys
+import requests
 from io import BytesIO
 import importlib.util
 
@@ -71,6 +72,79 @@ DEFAULT_PROGRAMS = {
     }
 }
 
+def lookup_doi(doi):
+    """Fetch metadata from Crossref API"""
+    if not doi:
+        return None
+    try:
+        url = f"https://api.crossref.org/works/{doi}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()['message']
+
+            # Extract title
+            title = data.get('title', [''])[0]
+
+            # Extract authors
+            authors_list = data.get('author', [])
+            authors = ", ".join([f"{a.get('family', '')} {a.get('given', '')}".strip() for a in authors_list])
+            if len(authors_list) > 3:
+                authors = f"{authors_list[0].get('family', '')} et al."
+
+            # Extract year
+            year = ""
+            issued = data.get('issued', {}).get('date-parts', [[None]])[0][0]
+            if issued:
+                year = str(issued)
+
+            # Extract journal
+            journal = data.get('container-title', [''])[0]
+
+            return {
+                'title': title,
+                'authors': authors,
+                'year': year,
+                'journal': journal
+            }
+    except Exception as e:
+        st.error(f"Error looking up DOI: {e}")
+    return None
+
+def lookup_orcid(orcid_id):
+    """Fetch metadata from ORCID API"""
+    if not orcid_id:
+        return None
+    try:
+        headers = {"Accept": "application/json"}
+        # Get personal details
+        url_p = f"https://pub.orcid.org/v3.0/{orcid_id}/personal-details"
+        res_p = requests.get(url_p, headers=headers, timeout=10)
+
+        # Get employments
+        url_e = f"https://pub.orcid.org/v3.0/{orcid_id}/employments"
+        res_e = requests.get(url_e, headers=headers, timeout=10)
+
+        metadata = {}
+
+        if res_p.status_code == 200:
+            data_p = res_p.json()
+            name = data_p.get('name', {})
+            metadata['first_name'] = name.get('given-names', {}).get('value', '')
+            metadata['last_name'] = name.get('family-name', {}).get('value', '')
+
+        if res_e.status_code == 200:
+            data_e = res_e.json()
+            affiliations = data_e.get('affiliation-group', [])
+            if affiliations:
+                # Get the first (likely most recent) employment
+                org = affiliations[0].get('summaries', [{}])[0].get('employment-summary', {}).get('organization', {})
+                metadata['organization'] = org.get('name', '')
+
+        return metadata if metadata else None
+    except Exception as e:
+        st.error(f"Error looking up ORCID: {e}")
+    return None
+
 @st.cache_data
 def load_resources():
     schema = load_json(SCHEMA_FILE)
@@ -110,6 +184,14 @@ if 'phase' not in st.session_state:
         'external_resources': ''
     }
     st.session_state.generated_tsv_files = []
+    # UI helper keys
+    st.session_state.rw_doi = ""
+    st.session_state.rw_title = ""
+    st.session_state.rw_authors = ""
+    st.session_state.inv_orcid = ""
+    st.session_state.inv_first = ""
+    st.session_state.inv_last = ""
+    st.session_state.inv_org = ""
 
 # Create output directory
 if not os.path.exists(st.session_state.output_dir):
@@ -432,11 +514,29 @@ if st.session_state.phase == 0:
         st.markdown("---")
         st.write("**Add New Investigator:**")
         
-        with st.form("investigator_form", clear_on_submit=True):
-            first_name = st.text_input("First Name (Required)*")
-            last_name = st.text_input("Last Name (Required)*")
+        col_orcid, col_lookup_orc = st.columns([3, 1])
+        with col_orcid:
+            orcid_input = st.text_input("ORCID (Optional)", value=st.session_state.get('inv_orcid', ''), help="e.g., 0000-0002-1825-0097")
+        with col_lookup_orc:
+            st.write(" ") # alignment
+            st.write(" ")
+            if st.button("🔍 Lookup ORCID"):
+                orcid_metadata = lookup_orcid(orcid_input)
+                if orcid_metadata:
+                    st.session_state.inv_orcid = orcid_input
+                    st.session_state.inv_first = orcid_metadata.get('first_name', '')
+                    st.session_state.inv_last = orcid_metadata.get('last_name', '')
+                    st.session_state.inv_org = orcid_metadata.get('organization', '')
+                    st.success("Metadata found!")
+                    st.rerun()
+                else:
+                    st.error("ORCID not found or no public profile.")
+
+        with st.form("investigator_form"):
+            first_name = st.text_input("First Name (Required)*", value=st.session_state.get('inv_first', ''))
+            last_name = st.text_input("Last Name (Required)*", value=st.session_state.get('inv_last', ''))
             email = st.text_input("Email (Required)*")
-            organization_name = st.text_input("Organization Name (Required)*")
+            organization_name = st.text_input("Organization Name (Required)*", value=st.session_state.get('inv_org', ''))
             
             submitted = st.form_submit_button("Add Investigator")
             if submitted:
@@ -447,7 +547,16 @@ if st.session_state.phase == 0:
                         'email': email,
                         'organization_name': organization_name,
                     }
+                    if orcid_input:
+                        investigator_data['person_orcid'] = orcid_input
+
                     st.session_state.metadata['Investigator'].append(investigator_data)
+
+                    # Clear session state
+                    for key in ['inv_orcid', 'inv_first', 'inv_last', 'inv_org']:
+                        if key in st.session_state:
+                            st.session_state[key] = ""
+
                     st.success(f"✅ Added investigator: {first_name} {last_name}")
                     st.rerun()
                 else:
@@ -485,10 +594,29 @@ if st.session_state.phase == 0:
             "IsObsoletedBy"
         ]
 
-        with st.form("related_work_form", clear_on_submit=True):
-            doi = st.text_input("DOI (Required)*")
-            publication_title = st.text_input("Publication Title (Optional)")
-            authorship = st.text_input("Authorship (Optional)", help="Author names")
+        col_doi, col_lookup = st.columns([3, 1])
+        with col_doi:
+            doi_input = st.text_input("DOI (Required)*", value=st.session_state.get('rw_doi', ''))
+        with col_lookup:
+            st.write(" ") # alignment
+            st.write(" ")
+            if st.button("🔍 Lookup DOI"):
+                doi_metadata = lookup_doi(doi_input)
+                if doi_metadata:
+                    st.session_state.rw_doi = doi_input
+                    st.session_state.rw_title = doi_metadata['title']
+                    st.session_state.rw_authors = doi_metadata['authors']
+                    # We could also use year and journal if we had fields for them
+                    st.success("Metadata found!")
+                    st.rerun()
+                else:
+                    st.error("DOI not found.")
+
+        with st.form("related_work_form"):
+            # We don't use clear_on_submit because we want to control clearing via session state
+            doi = st.text_input("DOI (Required)*", value=st.session_state.get('rw_doi', doi_input))
+            publication_title = st.text_input("Publication Title (Optional)", value=st.session_state.get('rw_title', ''))
+            authorship = st.text_input("Authorship (Optional)", value=st.session_state.get('rw_authors', ''), help="Author names")
             publication_type = st.selectbox(
                 "Publication Type (Required)*",
                 options=["Journal Article", "Conference Paper", "Technical Report", "Preprint", "Other"]
@@ -512,6 +640,12 @@ if st.session_state.phase == 0:
                         work_data['authorship'] = authorship
 
                     st.session_state.metadata['Related_Work'].append(work_data)
+
+                    # Clear session state for next entry
+                    for key in ['rw_doi', 'rw_title', 'rw_authors']:
+                        if key in st.session_state:
+                            st.session_state[key] = ""
+
                     st.success(f"✅ Added related work: {doi}")
                     st.rerun()
                 else:
