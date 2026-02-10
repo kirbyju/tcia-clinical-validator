@@ -27,6 +27,50 @@ RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 
 SCHEMA_FILE = os.path.join(RESOURCES_DIR, 'schema.json')
 PERMISSIBLE_VALUES_FILE = os.path.join(RESOURCES_DIR, 'permissible_values.json')
 
+# Default programs with complete metadata
+DEFAULT_PROGRAMS = {
+    "Community": {
+        "program_name": "Community",
+        "program_short_name": "Community",
+        "institution_name": "",
+        "program_short_description": "Community-contributed imaging collections",
+        "program_full_description": "The Community program encompasses imaging collections contributed by individual researchers and institutions that are not part of larger organized programs.",
+        "program_external_url": "https://www.cancerimagingarchive.net/"
+    },
+    "TCGA": {
+        "program_name": "The Cancer Genome Atlas",
+        "program_short_name": "TCGA",
+        "institution_name": "National Cancer Institute",
+        "program_short_description": "A landmark cancer genomics program",
+        "program_full_description": "The Cancer Genome Atlas (TCGA) is a landmark cancer genomics program that molecularly characterized over 20,000 primary cancer and matched normal samples spanning 33 cancer types.",
+        "program_external_url": "https://www.cancer.gov/tcga"
+    },
+    "CPTAC": {
+        "program_name": "Clinical Proteomic Tumor Analysis Consortium",
+        "program_short_name": "CPTAC",
+        "institution_name": "National Cancer Institute",
+        "program_short_description": "A comprehensive and coordinated effort to accelerate proteogenomic cancer research",
+        "program_full_description": "The Clinical Proteomic Tumor Analysis Consortium (CPTAC) is a comprehensive and coordinated effort to accelerate the understanding of the molecular basis of cancer through the application of large-scale proteome and genome analysis (proteogenomics).",
+        "program_external_url": "https://proteomics.cancer.gov/programs/cptac"
+    },
+    "APOLLO": {
+        "program_name": "Applied Proteogenomics OrganizationaL Learning and Outcomes",
+        "program_short_name": "APOLLO",
+        "institution_name": "National Cancer Institute",
+        "program_short_description": "Network for proteogenomic characterization of cancer",
+        "program_full_description": "The Applied Proteogenomics OrganizationaL Learning and Outcomes (APOLLO) Network aims to generate proteogenomic data and develop analytical tools to advance precision oncology.",
+        "program_external_url": "https://proteomics.cancer.gov/programs/apollo-network"
+    },
+    "Biobank": {
+        "program_name": "Cancer Imaging Biobank",
+        "program_short_name": "Biobank",
+        "institution_name": "",
+        "program_short_description": "Organized collections of cancer imaging data",
+        "program_full_description": "The Cancer Imaging Biobank program organizes and maintains curated collections of cancer imaging data for research purposes.",
+        "program_external_url": "https://www.cancerimagingarchive.net/"
+    }
+}
+
 @st.cache_data
 def load_resources():
     schema = load_json(SCHEMA_FILE)
@@ -56,6 +100,16 @@ if 'phase' not in st.session_state:
     st.session_state.column_mapping = {}
     st.session_state.structure_approved = False
     st.session_state.output_dir = 'output'
+    st.session_state.cicadas = {
+        'abstract': '',
+        'introduction': '',
+        'methods_subjects': '',
+        'methods_acquisition': '',
+        'methods_analysis': '',
+        'usage_notes': '',
+        'external_resources': ''
+    }
+    st.session_state.generated_tsv_files = []
 
 # Create output directory
 if not os.path.exists(st.session_state.output_dir):
@@ -102,7 +156,7 @@ if st.session_state.phase == 0:
     We'll go through this one entity at a time: **Program → Dataset → Investigator → Related Work**
     """)
     
-    tabs = st.tabs(["📁 Program", "📊 Dataset", "👤 Investigator", "📚 Related Work", "📝 Review & Generate"])
+    tabs = st.tabs(["📁 Program", "📊 Dataset", "📋 CICADAS", "👤 Investigator", "📚 Related Work", "📝 Review & Generate"])
     
     # TAB 1: Program
     with tabs[0]:
@@ -112,51 +166,85 @@ if st.session_state.phase == 0:
         NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
         """)
         
-        with st.form("program_form"):
-            program_name = st.text_input(
-                "Program Name (Required)*",
-                value=st.session_state.metadata['Program'][0]['program_name'] if st.session_state.metadata['Program'] else "Community",
-                help="Full name of the program"
-            )
-            program_short_name = st.text_input(
-                "Program Short Name (Required)*",
-                value=st.session_state.metadata['Program'][0]['program_short_name'] if st.session_state.metadata['Program'] else "Community",
-                help="Abbreviated name or acronym"
-            )
-            institution_name = st.text_input(
-                "Institution Name (Optional)",
-                value=st.session_state.metadata['Program'][0].get('institution_name', '') if st.session_state.metadata['Program'] else "",
-            )
-            program_short_description = st.text_area(
-                "Program Short Description (Optional)",
-                value=st.session_state.metadata['Program'][0].get('program_short_description', '') if st.session_state.metadata['Program'] else "",
-            )
-            program_full_description = st.text_area(
-                "Program Full Description (Optional)",
-                value=st.session_state.metadata['Program'][0].get('program_full_description', '') if st.session_state.metadata['Program'] else "",
-            )
-            program_external_url = st.text_input(
-                "Program External URL (Optional)",
-                value=st.session_state.metadata['Program'][0].get('program_external_url', '') if st.session_state.metadata['Program'] else "",
-            )
+        # Program selection
+        program_options = ["(Select a Program)"] + list(DEFAULT_PROGRAMS.keys()) + ["➕ Create New Program"]
+
+        # Determine current index
+        current_idx = 0
+        if st.session_state.metadata['Program']:
+            prog_name = st.session_state.metadata['Program'][0].get('program_short_name')
+            if prog_name in DEFAULT_PROGRAMS:
+                current_idx = list(DEFAULT_PROGRAMS.keys()).index(prog_name) + 1
+            else:
+                current_idx = len(program_options) - 1
+
+        program_choice = st.selectbox(
+            "Select Program",
+            options=program_options,
+            index=current_idx,
+            help="Choose a pre-defined program or create a custom one."
+        )
+
+        if program_choice != "(Select a Program)":
+            is_custom = program_choice == "➕ Create New Program"
             
-            submitted = st.form_submit_button("Save Program Information")
-            if submitted:
-                program_data = {
-                    'program_name': program_name,
-                    'program_short_name': program_short_name,
-                }
-                if institution_name:
-                    program_data['institution_name'] = institution_name
-                if program_short_description:
-                    program_data['program_short_description'] = program_short_description
-                if program_full_description:
-                    program_data['program_full_description'] = program_full_description
-                if program_external_url:
-                    program_data['program_external_url'] = program_external_url
-                    
-                st.session_state.metadata['Program'] = [program_data]
-                st.success("✅ Program information saved!")
+            if not is_custom:
+                prog_data = DEFAULT_PROGRAMS[program_choice]
+            else:
+                prog_data = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
+
+            with st.form("program_form"):
+                program_name = st.text_input(
+                    "Program Name (Required)*",
+                    value=prog_data.get('program_name', ''),
+                    disabled=not is_custom,
+                    help="Full name of the program"
+                )
+                program_short_name = st.text_input(
+                    "Program Short Name (Required)*",
+                    value=prog_data.get('program_short_name', ''),
+                    disabled=not is_custom,
+                    help="Abbreviated name or acronym"
+                )
+                institution_name = st.text_input(
+                    "Institution Name (Optional)",
+                    value=prog_data.get('institution_name', ''),
+                    disabled=not is_custom
+                )
+                program_short_description = st.text_area(
+                    "Program Short Description (Optional)",
+                    value=prog_data.get('program_short_description', ''),
+                    disabled=not is_custom
+                )
+                program_full_description = st.text_area(
+                    "Program Full Description (Optional)",
+                    value=prog_data.get('program_full_description', ''),
+                    disabled=not is_custom
+                )
+                program_external_url = st.text_input(
+                    "Program External URL (Optional)",
+                    value=prog_data.get('program_external_url', ''),
+                    disabled=not is_custom
+                )
+
+                submitted = st.form_submit_button("Save Program Information")
+                if submitted:
+                    new_program_data = {
+                        'program_name': program_name,
+                        'program_short_name': program_short_name,
+                    }
+                    if institution_name:
+                        new_program_data['institution_name'] = institution_name
+                    if program_short_description:
+                        new_program_data['program_short_description'] = program_short_description
+                    if program_full_description:
+                        new_program_data['program_full_description'] = program_full_description
+                    if program_external_url:
+                        new_program_data['program_external_url'] = program_external_url
+
+                    st.session_state.metadata['Program'] = [new_program_data]
+                    st.success("✅ Program information saved!")
+                    st.rerun()
     
     # TAB 2: Dataset
     with tabs[1]:
@@ -166,23 +254,14 @@ if st.session_state.phase == 0:
             dataset_long_name = st.text_input(
                 "Dataset Long Name (Required)*",
                 value=st.session_state.metadata['Dataset'][0]['dataset_long_name'] if st.session_state.metadata['Dataset'] else "",
-                help="Descriptive title for the collection/dataset"
+                help="Descriptive title for the collection/dataset (Recommended < 110 chars)"
             )
             dataset_short_name = st.text_input(
                 "Dataset Short Name (Required)*",
                 value=st.session_state.metadata['Dataset'][0]['dataset_short_name'] if st.session_state.metadata['Dataset'] else "",
-                help="Abbreviated title"
+                help="Abbreviated title (< 30 chars, alphanumeric/dashes only)"
             )
-            dataset_description = st.text_area(
-                "Dataset Description (Required)*",
-                value=st.session_state.metadata['Dataset'][0].get('dataset_description', '') if st.session_state.metadata['Dataset'] else "",
-                help="Description of the collection/dataset/study"
-            )
-            dataset_abstract = st.text_area(
-                "Dataset Abstract (Required)*",
-                value=st.session_state.metadata['Dataset'][0].get('dataset_abstract', '') if st.session_state.metadata['Dataset'] else "",
-                help="Short description for public pages"
-            )
+
             # Calculate default value for number of participants
             default_participant_count = 1
             if st.session_state.metadata['Dataset'] and 'number_of_participants' in st.session_state.metadata['Dataset'][0]:
@@ -214,11 +293,15 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save Dataset Information")
             if submitted:
+                # Keep existing description and abstract if they exist
+                existing_desc = st.session_state.metadata['Dataset'][0].get('dataset_description', '') if st.session_state.metadata['Dataset'] else ''
+                existing_abstract = st.session_state.metadata['Dataset'][0].get('dataset_abstract', '') if st.session_state.metadata['Dataset'] else ''
+
                 dataset_data = {
                     'dataset_long_name': dataset_long_name,
                     'dataset_short_name': dataset_short_name,
-                    'dataset_description': dataset_description,
-                    'dataset_abstract': dataset_abstract,
+                    'dataset_description': existing_desc,
+                    'dataset_abstract': existing_abstract,
                     'number_of_participants': number_of_participants,
                     'data_has_been_de-identified': data_deidentified,
                 }
@@ -226,10 +309,111 @@ if st.session_state.phase == 0:
                     dataset_data['adult_or_childhood_study'] = adult_or_childhood
                     
                 st.session_state.metadata['Dataset'] = [dataset_data]
-                st.success("✅ Dataset information saved!")
-    
-    # TAB 3: Investigator
+                st.success("✅ Basic Dataset information saved! Now complete the CICADAS tab.")
+
+    # TAB 3: CICADAS
     with tabs[2]:
+        st.subheader("CICADAS Dataset Description")
+        st.markdown("""
+        Follow the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to ensure your dataset
+        is comprehensive and optimally discoverable.
+        """)
+
+        with st.form("cicadas_form"):
+            st.write("### Abstract")
+            c_abstract = st.text_area(
+                "Abstract (Max 1,000 Characters)*",
+                value=st.session_state.cicadas.get('abstract', ''),
+                help="Brief overview of the dataset: subjects, imaging types, potential applications.",
+                max_chars=1000
+            )
+
+            st.write("### Introduction")
+            c_intro = st.text_area(
+                "Introduction",
+                value=st.session_state.cicadas.get('introduction', ''),
+                help="Purpose and uniqueness of the dataset."
+            )
+
+            st.write("### Methods")
+            c_m_subjects = st.text_area(
+                "Subject Inclusion and Exclusion Criteria",
+                value=st.session_state.cicadas.get('methods_subjects', ''),
+                help="Demographics, clinical characteristics, and potential study bias."
+            )
+            c_m_acquisition = st.text_area(
+                "Data Acquisition",
+                value=st.session_state.cicadas.get('methods_acquisition', ''),
+                help="Scanner details, sequence parameters, radiotracers, etc."
+            )
+            c_m_analysis = st.text_area(
+                "Data Analysis",
+                value=st.session_state.cicadas.get('methods_analysis', ''),
+                help="Conversions, preprocessing, annotation protocols, quality control."
+            )
+
+            st.write("### Usage Notes")
+            c_usage = st.text_area(
+                "Usage Notes",
+                value=st.session_state.cicadas.get('usage_notes', ''),
+                help="Data organization, naming conventions, recommended software."
+            )
+
+            st.write("### External Resources")
+            c_ext = st.text_area(
+                "External Resources (Optional)",
+                value=st.session_state.cicadas.get('external_resources', ''),
+                help="Links to code, related datasets, or other tools."
+            )
+
+            submitted = st.form_submit_button("Save CICADAS Description")
+            if submitted:
+                # Update CICADAS state
+                st.session_state.cicadas = {
+                    'abstract': c_abstract,
+                    'introduction': c_intro,
+                    'methods_subjects': c_m_subjects,
+                    'methods_acquisition': c_m_acquisition,
+                    'methods_analysis': c_m_analysis,
+                    'usage_notes': c_usage,
+                    'external_resources': c_ext
+                }
+
+                # Construct dataset_description
+                desc_parts = []
+                if c_intro:
+                    desc_parts.append(f"## Introduction\n{c_intro}")
+
+                methods_content = ""
+                if c_m_subjects:
+                    methods_content += f"### Subject Inclusion and Exclusion Criteria\n{c_m_subjects}\n\n"
+                if c_m_acquisition:
+                    methods_content += f"### Data Acquisition\n{c_m_acquisition}\n\n"
+                if c_m_analysis:
+                    methods_content += f"### Data Analysis\n{c_m_analysis}\n\n"
+
+                if methods_content:
+                    desc_parts.append(f"## Methods\n{methods_content}")
+
+                if c_usage:
+                    desc_parts.append(f"## Usage Notes\n{c_usage}")
+
+                if c_ext:
+                    desc_parts.append(f"## External Resources\n{c_ext}")
+
+                full_description = "\n\n".join(desc_parts)
+
+                # Update metadata if Dataset exists
+                if st.session_state.metadata['Dataset']:
+                    st.session_state.metadata['Dataset'][0]['dataset_abstract'] = c_abstract
+                    st.session_state.metadata['Dataset'][0]['dataset_description'] = full_description
+                else:
+                    st.warning("⚠️ Please fill out the basic Dataset information first.")
+
+                st.success("✅ CICADAS information saved and concatenated into Dataset Description!")
+
+    # TAB 4: Investigator
+    with tabs[3]:
         st.subheader("Investigator Information")
         st.markdown("Add one or more investigators for this dataset.")
         
@@ -248,7 +432,7 @@ if st.session_state.phase == 0:
         st.markdown("---")
         st.write("**Add New Investigator:**")
         
-        with st.form("investigator_form"):
+        with st.form("investigator_form", clear_on_submit=True):
             first_name = st.text_input("First Name (Required)*")
             last_name = st.text_input("Last Name (Required)*")
             email = st.text_input("Email (Required)*")
@@ -269,8 +453,8 @@ if st.session_state.phase == 0:
                 else:
                     st.error("Please fill in all required fields.")
     
-    # TAB 4: Related Work
-    with tabs[3]:
+    # TAB 5: Related Work
+    with tabs[4]:
         st.subheader("Related Work / Publications")
         st.markdown("Add publications, DOIs, or related work for this dataset.")
         
@@ -289,32 +473,52 @@ if st.session_state.phase == 0:
         st.markdown("---")
         st.write("**Add New Related Work:**")
         
-        with st.form("related_work_form"):
+        # Define permissible relationship types
+        rel_types = [
+            "IsNewVersionOf",
+            "IsPreviousVersionOf",
+            "IsReferencedBy",
+            "References",
+            "IsDerivedFrom",
+            "IsSourceOf",
+            "Obsoletes",
+            "IsObsoletedBy"
+        ]
+
+        with st.form("related_work_form", clear_on_submit=True):
             doi = st.text_input("DOI (Required)*")
-            publication_title = st.text_input("Publication Title (Required)*")
-            authorship = st.text_input("Authorship (Required)*", help="Author names")
+            publication_title = st.text_input("Publication Title (Optional)")
+            authorship = st.text_input("Authorship (Optional)", help="Author names")
             publication_type = st.selectbox(
                 "Publication Type (Required)*",
                 options=["Journal Article", "Conference Paper", "Technical Report", "Preprint", "Other"]
             )
+            relationship_type = st.selectbox(
+                "Relationship Type (Required)*",
+                options=[""] + rel_types
+            )
             
             submitted = st.form_submit_button("Add Related Work")
             if submitted:
-                if doi and publication_title and authorship:
+                if doi and publication_type and relationship_type:
                     work_data = {
                         'DOI': doi,
-                        'publication_title': publication_title,
-                        'authorship': authorship,
                         'publication_type': publication_type,
+                        'relationship_type': relationship_type,
                     }
+                    if publication_title:
+                        work_data['publication_title'] = publication_title
+                    if authorship:
+                        work_data['authorship'] = authorship
+
                     st.session_state.metadata['Related_Work'].append(work_data)
-                    st.success(f"✅ Added related work: {publication_title}")
+                    st.success(f"✅ Added related work: {doi}")
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields.")
+                    st.error("Please fill in all required fields (DOI, Publication Type, Relationship Type).")
     
-    # TAB 5: Review & Generate
-    with tabs[4]:
+    # TAB 6: Review & Generate
+    with tabs[5]:
         st.subheader("Review & Generate TSV Files")
         st.markdown("Review all your metadata and generate the TSV files.")
         
@@ -359,29 +563,33 @@ if st.session_state.phase == 0:
         with col1:
             if st.button("✨ Generate TSV Files", type="primary", use_container_width=True):
                 # Generate TSV files
-                generated_files = []
+                new_generated_files = []
                 
                 for entity_name, data in st.session_state.metadata.items():
                     if data:
                         filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
                         if filepath:
-                            generated_files.append(filepath)
+                            new_generated_files.append(filepath)
                 
-                if generated_files:
-                    st.success(f"✅ Generated {len(generated_files)} TSV file(s)!")
-                    st.write("**Generated Files:**")
-                    for filepath in generated_files:
-                        st.write(f"- {filepath}")
-                        # Offer download
+                if new_generated_files:
+                    st.session_state.generated_tsv_files = new_generated_files
+                    st.success(f"✅ Generated {len(new_generated_files)} TSV file(s)!")
+                else:
+                    st.error("No files generated. Please ensure you've provided metadata.")
+
+            # Display download buttons if files have been generated
+            if st.session_state.generated_tsv_files:
+                st.write("**Generated Files:**")
+                for filepath in st.session_state.generated_tsv_files:
+                    if os.path.exists(filepath):
                         with open(filepath, 'r') as f:
                             st.download_button(
                                 label=f"Download {os.path.basename(filepath)}",
                                 data=f.read(),
                                 file_name=os.path.basename(filepath),
-                                mime="text/tab-separated-values"
+                                mime="text/tab-separated-values",
+                                key=f"download_{os.path.basename(filepath)}"
                             )
-                else:
-                    st.error("No files generated. Please ensure you've provided metadata.")
         
         with col2:
             if st.button("➡️ Proceed to Phase 1", use_container_width=True):

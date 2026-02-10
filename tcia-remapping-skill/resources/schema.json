@@ -362,7 +362,7 @@
     {
       "Property": "relationship_type",
       "Description": "A set of DOI relationship types based on the DataCite Metadata Schema.",
-      "Required/optional": "O"
+      "Required/optional": "R"
     },
     {
       "Property": "publication_type",
@@ -372,12 +372,12 @@
     {
       "Property": "publication_title",
       "Description": "The full title of the publication stated exactly as it appears on the published work.",
-      "Required/optional": "R"
+      "Required/optional": "O"
     },
     {
       "Property": "authorship",
       "Description": "A list of authors for the cited work. More specifically, for publications with no more than three authors, authorship quoted in full; for publications with more than three authors, authorship abbreviated to first author et al.",
-      "Required/optional": "R"
+      "Required/optional": "O"
     },
     {
       "Property": "year_of_publication",
