@@ -8,10 +8,17 @@ from io import BytesIO
 import importlib.util
 
 # Add tcia-remapping-skill to the path and import the helper
-remap_helper_path = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'remap_helper.py')
+skill_dir = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill')
+remap_helper_path = os.path.join(skill_dir, 'remap_helper.py')
 spec = importlib.util.spec_from_file_location("remap_helper", remap_helper_path)
 remap_helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(remap_helper)
+
+# Import MDF parser
+mdf_parser_path = os.path.join(skill_dir, 'mdf_parser.py')
+spec_mdf = importlib.util.spec_from_file_location("mdf_parser", mdf_parser_path)
+mdf_parser = importlib.util.module_from_spec(spec_mdf)
+spec_mdf.loader.exec_module(mdf_parser)
 
 # Import functions
 load_json = remap_helper.load_json
@@ -20,6 +27,7 @@ validate_dataframe = remap_helper.validate_dataframe
 split_data_by_schema = remap_helper.split_data_by_schema
 write_metadata_tsv = remap_helper.write_metadata_tsv
 check_metadata_conflict = remap_helper.check_metadata_conflict
+get_mdf_resources = mdf_parser.get_mdf_resources
 
 st.set_page_config(page_title="TCIA Dataset Remapper", layout="wide")
 
@@ -147,9 +155,88 @@ def lookup_orcid(orcid_id):
 
 @st.cache_data
 def load_resources():
+    # Try loading from MDF first
+    schema, permissible_values = get_mdf_resources(RESOURCES_DIR)
+
+    if schema and permissible_values:
+        return schema, permissible_values
+
+    # Fallback to legacy JSON files
+    st.warning("⚠️ Using legacy schema files. MDF model files not found or invalid.")
     schema = load_json(SCHEMA_FILE)
     permissible_values = load_json(PERMISSIBLE_VALUES_FILE)
     return schema, permissible_values
+
+def render_dynamic_form(entity_name, schema, permissible_values, current_data=None, excluded_fields=None, custom_labels=None):
+    """
+    Renders a dynamic form for an entity based on the schema.
+    """
+    if excluded_fields is None:
+        excluded_fields = []
+    if custom_labels is None:
+        custom_labels = {}
+    if current_data is None:
+        current_data = {}
+
+    entity_props = schema.get(entity_name, [])
+    form_data = {}
+
+    # Filter out excluded fields and ID fields
+    props_to_show = [
+        p for p in entity_props
+        if p['Property'] not in excluded_fields
+        and not p['Property'].endswith('_id')
+        and '.' not in p['Property']
+    ]
+
+    for prop in props_to_show:
+        prop_name = prop['Property']
+        label = custom_labels.get(prop_name, prop_name.replace('_', ' ').title())
+        is_required = prop.get('Required/optional') == 'R'
+        if is_required:
+            label += "*"
+
+        help_text = prop.get('Description', '')
+        default_val = current_data.get(prop_name, "")
+
+        if prop_name in permissible_values:
+            options = permissible_values[prop_name]
+            # Handle list of dicts from MDF parser
+            if options and isinstance(options[0], dict):
+                option_labels = [f"{o['value']}" for o in options]
+                if not is_required:
+                    option_labels = [""] + option_labels
+
+                # Find index of default value
+                current_val = str(default_val) if default_val else ""
+                try:
+                    default_idx = option_labels.index(current_val)
+                except ValueError:
+                    default_idx = 0
+
+                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text)
+                form_data[prop_name] = selected
+            else:
+                if not is_required:
+                    options = [""] + options
+                try:
+                    default_idx = options.index(default_val)
+                except ValueError:
+                    default_idx = 0
+                selected = st.selectbox(label, options=options, index=default_idx, help=help_text)
+                form_data[prop_name] = selected
+        elif "description" in prop_name or "abstract" in prop_name or "acknowledgements" in prop_name:
+            form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text)
+        elif "number" in prop_name or "count" in prop_name or "size" in prop_name:
+            try:
+                dv = int(default_val) if default_val else 0
+            except:
+                dv = 0
+            form_data[prop_name] = st.number_input(label, value=dv, help=help_text)
+        else:
+            form_data[prop_name] = st.text_input(label, value=str(default_val), help=help_text)
+
+    return form_data
 
 def reset_app():
     """Reset all session state"""
@@ -276,54 +363,16 @@ if st.session_state.phase == 0:
                 prog_data = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
 
             with st.form("program_form"):
-                program_name = st.text_input(
-                    "Program Name (Required)*",
-                    value=prog_data.get('program_name', ''),
-                    disabled=not is_custom,
-                    help="Full name of the program"
-                )
-                program_short_name = st.text_input(
-                    "Program Short Name (Required)*",
-                    value=prog_data.get('program_short_name', ''),
-                    disabled=not is_custom,
-                    help="Abbreviated name or acronym"
-                )
-                institution_name = st.text_input(
-                    "Institution Name (Optional)",
-                    value=prog_data.get('institution_name', ''),
-                    disabled=not is_custom
-                )
-                program_short_description = st.text_area(
-                    "Program Short Description (Optional)",
-                    value=prog_data.get('program_short_description', ''),
-                    disabled=not is_custom
-                )
-                program_full_description = st.text_area(
-                    "Program Full Description (Optional)",
-                    value=prog_data.get('program_full_description', ''),
-                    disabled=not is_custom
-                )
-                program_external_url = st.text_input(
-                    "Program External URL (Optional)",
-                    value=prog_data.get('program_external_url', ''),
-                    disabled=not is_custom
+                # Always render dynamic form but if not custom, the fields might be prepopulated
+                new_program_data = render_dynamic_form(
+                    "Program",
+                    schema,
+                    permissible_values,
+                    current_data=prog_data
                 )
 
                 submitted = st.form_submit_button("Save Program Information")
                 if submitted:
-                    new_program_data = {
-                        'program_name': program_name,
-                        'program_short_name': program_short_name,
-                    }
-                    if institution_name:
-                        new_program_data['institution_name'] = institution_name
-                    if program_short_description:
-                        new_program_data['program_short_description'] = program_short_description
-                    if program_full_description:
-                        new_program_data['program_full_description'] = program_full_description
-                    if program_external_url:
-                        new_program_data['program_external_url'] = program_external_url
-
                     st.session_state.metadata['Program'] = [new_program_data]
                     st.success("✅ Program information saved!")
                     st.rerun()
@@ -332,64 +381,23 @@ if st.session_state.phase == 0:
     with tabs[1]:
         st.subheader("Dataset Information")
         
-        with st.form("dataset_form"):
-            dataset_long_name = st.text_input(
-                "Dataset Long Name (Required)*",
-                value=st.session_state.metadata['Dataset'][0]['dataset_long_name'] if st.session_state.metadata['Dataset'] else "",
-                help="Descriptive title for the collection/dataset (Recommended < 110 chars)"
-            )
-            dataset_short_name = st.text_input(
-                "Dataset Short Name (Required)*",
-                value=st.session_state.metadata['Dataset'][0]['dataset_short_name'] if st.session_state.metadata['Dataset'] else "",
-                help="Abbreviated title (< 30 chars, alphanumeric/dashes only)"
-            )
+        current_ds_data = st.session_state.metadata['Dataset'][0] if st.session_state.metadata['Dataset'] else {}
 
-            # Calculate default value for number of participants
-            default_participant_count = 1
-            if st.session_state.metadata['Dataset'] and 'number_of_participants' in st.session_state.metadata['Dataset'][0]:
-                default_participant_count = st.session_state.metadata['Dataset'][0]['number_of_participants']
-            
-            number_of_participants = st.number_input(
-                "Number of Participants (Required)*",
-                min_value=1,
-                value=default_participant_count,
-                help="Total number of study participants"
-            )
-            
-            # Calculate default index for de-identification dropdown
-            deidentified_index = 0  # Default to "Yes"
-            if st.session_state.metadata['Dataset']:
-                if st.session_state.metadata['Dataset'][0].get('data_has_been_de-identified') == "No":
-                    deidentified_index = 1
-            
-            data_deidentified = st.selectbox(
-                "Data Has Been De-identified (Required)*",
-                options=["Yes", "No"],
-                index=deidentified_index
-            )
-            adult_or_childhood = st.selectbox(
-                "Adult or Childhood Study (Optional)",
-                options=["", "Adult", "Pediatric", "Both"],
-                index=0
+        with st.form("dataset_form"):
+            dataset_data = render_dynamic_form(
+                "Dataset",
+                schema,
+                permissible_values,
+                current_data=current_ds_data,
+                excluded_fields=['dataset_description', 'dataset_abstract']
             )
             
             submitted = st.form_submit_button("Save Dataset Information")
             if submitted:
                 # Keep existing description and abstract if they exist
-                existing_desc = st.session_state.metadata['Dataset'][0].get('dataset_description', '') if st.session_state.metadata['Dataset'] else ''
-                existing_abstract = st.session_state.metadata['Dataset'][0].get('dataset_abstract', '') if st.session_state.metadata['Dataset'] else ''
+                dataset_data['dataset_description'] = current_ds_data.get('dataset_description', '')
+                dataset_data['dataset_abstract'] = current_ds_data.get('dataset_abstract', '')
 
-                dataset_data = {
-                    'dataset_long_name': dataset_long_name,
-                    'dataset_short_name': dataset_short_name,
-                    'dataset_description': existing_desc,
-                    'dataset_abstract': existing_abstract,
-                    'number_of_participants': number_of_participants,
-                    'data_has_been_de-identified': data_deidentified,
-                }
-                if adult_or_childhood:
-                    dataset_data['adult_or_childhood_study'] = adult_or_childhood
-                    
                 st.session_state.metadata['Dataset'] = [dataset_data]
                 st.success("✅ Basic Dataset information saved! Now complete the CICADAS tab.")
 
@@ -533,23 +541,23 @@ if st.session_state.phase == 0:
                     st.error("ORCID not found or no public profile.")
 
         with st.form("investigator_form"):
-            first_name = st.text_input("First Name (Required)*", value=st.session_state.get('inv_first', ''))
-            last_name = st.text_input("Last Name (Required)*", value=st.session_state.get('inv_last', ''))
-            email = st.text_input("Email (Required)*")
-            organization_name = st.text_input("Organization Name (Required)*", value=st.session_state.get('inv_org', ''))
+            inv_prepopulate = {
+                'first_name': st.session_state.get('inv_first', ''),
+                'last_name': st.session_state.get('inv_last', ''),
+                'organization_name': st.session_state.get('inv_org', ''),
+                'person_orcid': orcid_input
+            }
+
+            investigator_data = render_dynamic_form(
+                "Investigator",
+                schema,
+                permissible_values,
+                current_data=inv_prepopulate
+            )
             
             submitted = st.form_submit_button("Add Investigator")
             if submitted:
-                if first_name and last_name and email and organization_name:
-                    investigator_data = {
-                        'first_name': first_name,
-                        'last_name': last_name,
-                        'email': email,
-                        'organization_name': organization_name,
-                    }
-                    if orcid_input:
-                        investigator_data['person_orcid'] = orcid_input
-
+                if investigator_data.get('first_name') and investigator_data.get('last_name') and investigator_data.get('email'):
                     st.session_state.metadata['Investigator'].append(investigator_data)
 
                     # Clear session state
@@ -557,10 +565,10 @@ if st.session_state.phase == 0:
                         if key in st.session_state:
                             st.session_state[key] = ""
 
-                    st.success(f"✅ Added investigator: {first_name} {last_name}")
+                    st.success(f"✅ Added investigator: {investigator_data['first_name']} {investigator_data['last_name']}")
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields.")
+                    st.error("Please fill in all required fields (First Name, Last Name, Email).")
     
     # TAB 5: Related Work
     with tabs[4]:
@@ -613,32 +621,22 @@ if st.session_state.phase == 0:
                     st.error("DOI not found.")
 
         with st.form("related_work_form"):
-            # We don't use clear_on_submit because we want to control clearing via session state
-            doi = st.text_input("DOI (Required)*", value=st.session_state.get('rw_doi', doi_input))
-            publication_title = st.text_input("Publication Title (Optional)", value=st.session_state.get('rw_title', ''))
-            authorship = st.text_input("Authorship (Optional)", value=st.session_state.get('rw_authors', ''), help="Author names")
-            publication_type = st.selectbox(
-                "Publication Type (Required)*",
-                options=["Journal Article", "Conference Paper", "Technical Report", "Preprint", "Other"]
-            )
-            relationship_type = st.selectbox(
-                "Relationship Type (Required)*",
-                options=[""] + rel_types
+            rw_prepopulate = {
+                'DOI': st.session_state.get('rw_doi', doi_input),
+                'publication_title': st.session_state.get('rw_title', ''),
+                'authorship': st.session_state.get('rw_authors', '')
+            }
+
+            work_data = render_dynamic_form(
+                "Related_Work",
+                schema,
+                permissible_values,
+                current_data=rw_prepopulate
             )
             
             submitted = st.form_submit_button("Add Related Work")
             if submitted:
-                if doi and publication_type and relationship_type:
-                    work_data = {
-                        'DOI': doi,
-                        'publication_type': publication_type,
-                        'relationship_type': relationship_type,
-                    }
-                    if publication_title:
-                        work_data['publication_title'] = publication_title
-                    if authorship:
-                        work_data['authorship'] = authorship
-
+                if work_data.get('DOI') and work_data.get('publication_type') and work_data.get('relationship_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
 
                     # Clear session state for next entry
@@ -646,7 +644,7 @@ if st.session_state.phase == 0:
                         if key in st.session_state:
                             st.session_state[key] = ""
 
-                    st.success(f"✅ Added related work: {doi}")
+                    st.success(f"✅ Added related work: {work_data['DOI']}")
                     st.rerun()
                 else:
                     st.error("Please fill in all required fields (DOI, Publication Type, Relationship Type).")
@@ -889,7 +887,25 @@ elif st.session_state.phase == 2:
                         for col, col_corrections in corrections.items():
                             st.write(f"Column: **{col}**")
                             for old_val, new_val in list(col_corrections.items())[:5]:
-                                st.write(f"  - '{old_val}' → '{new_val}'")
+                                extra_info = ""
+                                if col in permissible_values:
+                                    matches = permissible_values[col]
+                                    if matches and isinstance(matches[0], dict):
+                                        match = next((m for m in matches if m['value'] == new_val), None)
+                                        if match:
+                                            parts = []
+                                            if 'code' in match and match['code']:
+                                                parts.append(f"Code: {match['code']}")
+                                            if 'definition' in match and match['definition']:
+                                                # Truncate definition if too long
+                                                defn = match['definition']
+                                                if len(defn) > 100:
+                                                    defn = defn[:97] + "..."
+                                                parts.append(f"Def: {defn}")
+                                            if parts:
+                                                extra_info = " (" + " | ".join(parts) + ")"
+
+                                st.write(f"  - '{old_val}' → **{new_val}**{extra_info}")
                         
                         if st.button(f"Apply Corrections to {entity_name}", key=f"apply_{entity_name}"):
                             # Apply corrections
