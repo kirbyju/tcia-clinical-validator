@@ -363,8 +363,7 @@ if st.session_state.phase == 0:
         format_func=lambda x: phase0_options[x],
         index=list(phase0_options.keys()).index(st.session_state.phase0_step),
         horizontal=True,
-        label_visibility="collapsed",
-        key="phase0_radio"
+        label_visibility="collapsed"
     )
     
     # Update state if changed via radio
@@ -439,7 +438,7 @@ if st.session_state.phase == 0:
                 permissible_values,
                 current_data=current_ds_data,
                 excluded_fields=['dataset_description', 'dataset_abstract'],
-                priority_fields=['dataset_long_name', 'dataset_short_name']
+                priority_fields=['dataset_long_name', 'dataset_short_name', 'number_of_participants']
             )
             
             submitted = st.form_submit_button("Save & Next")
@@ -645,18 +644,6 @@ if st.session_state.phase == 0:
         st.markdown("---")
         st.write("**Add New Related Work:**")
         
-        # Define permissible relationship types
-        rel_types = [
-            "IsNewVersionOf",
-            "IsPreviousVersionOf",
-            "IsReferencedBy",
-            "References",
-            "IsDerivedFrom",
-            "IsSourceOf",
-            "Obsoletes",
-            "IsObsoletedBy"
-        ]
-
         col_doi, col_lookup = st.columns([3, 1])
         with col_doi:
             doi_input = st.text_input("DOI (Required)*", value=st.session_state.get('rw_doi', ''))
@@ -691,7 +678,8 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save & Next")
             if submitted:
-                if work_data.get('DOI') and work_data.get('publication_type') and work_data.get('relationship_type'):
+                # Relationship Type is optional, but DOI, Title, Authorship, and Publication Type are required in schema
+                if work_data.get('DOI') and work_data.get('publication_title') and work_data.get('authorship') and work_data.get('publication_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
 
                     # Clear session state for next entry
@@ -703,86 +691,74 @@ if st.session_state.phase == 0:
                     st.session_state.phase0_step = 'Review'
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields (DOI, Publication Type, Relationship Type).")
+                    st.error("Please fill in all required fields (DOI, Title, Authorship, Publication Type).")
     
     # TAB 6: Review & Generate
     elif st.session_state.phase0_step == "Review":
         st.subheader("Review & Generate TSV Files")
         st.markdown("Review all your metadata and generate the TSV files.")
         
+        # --- Automatic Generation ---
+        generated_files_map = {}
+        for entity_name, data in st.session_state.metadata.items():
+            if data:
+                filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
+                if filepath:
+                    generated_files_map[entity_name] = filepath
+        st.session_state.generated_tsv_files = list(generated_files_map.values())
+        # ----------------------------
+
         # Display recap
         st.write("### 📋 Metadata Summary")
         
-        with st.expander("Program", expanded=True):
-            if st.session_state.metadata['Program']:
-                for key, value in st.session_state.metadata['Program'][0].items():
-                    st.write(f"**{key}:** {value}")
-            else:
-                st.warning("No program information provided.")
+        review_entities = [
+            ("Program", "Program"),
+            ("Dataset", "Dataset"),
+            ("Investigator", "Investigators"),
+            ("Related_Work", "Related Works")
+        ]
         
-        with st.expander("Dataset", expanded=True):
-            if st.session_state.metadata['Dataset']:
-                for key, value in st.session_state.metadata['Dataset'][0].items():
-                    st.write(f"**{key}:** {value}")
-            else:
-                st.warning("No dataset information provided.")
-        
-        with st.expander("Investigators", expanded=True):
-            if st.session_state.metadata['Investigator']:
-                for idx, inv in enumerate(st.session_state.metadata['Investigator']):
-                    st.write(f"**Investigator {idx+1}:**")
-                    for key, value in inv.items():
-                        st.write(f"  - {key}: {value}")
-            else:
-                st.warning("No investigators provided.")
-        
-        with st.expander("Related Works", expanded=True):
-            if st.session_state.metadata['Related_Work']:
-                for idx, work in enumerate(st.session_state.metadata['Related_Work']):
-                    st.write(f"**Related Work {idx+1}:**")
-                    for key, value in work.items():
-                        st.write(f"  - {key}: {value}")
-            else:
-                st.warning("No related works provided.")
-        
+        for entity_key, label in review_entities:
+            col_title, col_dl = st.columns([4, 1])
+            with col_title:
+                exp = st.expander(label, expanded=True)
+            with col_dl:
+                st.write("") # Alignment
+                filepath = generated_files_map.get(entity_key)
+                filename = os.path.basename(filepath) if filepath else f"{entity_key.lower()}.tsv"
+                data_exists = len(st.session_state.metadata.get(entity_key, [])) > 0
+                
+                if data_exists and filepath and os.path.exists(filepath):
+                    with open(filepath, 'r') as f:
+                        st.download_button(
+                            label=f"Download {filename}",
+                            data=f.read(),
+                            file_name=filename,
+                            mime="text/tab-separated-values",
+                            key=f"dl_btn_{entity_key}"
+                        )
+                else:
+                    st.button(f"Download {filename}", key=f"dl_btn_disabled_{entity_key}", disabled=True)
+
+            with exp:
+                entity_data = st.session_state.metadata.get(entity_key)
+                if entity_data:
+                    if entity_key in ["Investigator", "Related_Work"]:
+                        for idx, item in enumerate(entity_data):
+                            st.write(f"**{entity_key} {idx+1}:**")
+                            for key, value in item.items():
+                                st.write(f"  - {key}: {value}")
+                    else: # Program, Dataset
+                        for key, value in entity_data[0].items():
+                            st.write(f"**{key}:** {value}")
+                else:
+                    st.warning(f"No {entity_key.lower()} information provided.")
+
         st.markdown("---")
         
-        col1, col2 = st.columns([1, 1])
-        with col1:
-            if st.button("✨ Generate TSV Files", type="primary", use_container_width=True):
-                # Generate TSV files
-                new_generated_files = []
-                
-                for entity_name, data in st.session_state.metadata.items():
-                    if data:
-                        filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
-                        if filepath:
-                            new_generated_files.append(filepath)
-                
-                if new_generated_files:
-                    st.session_state.generated_tsv_files = new_generated_files
-                    st.success(f"✅ Generated {len(new_generated_files)} TSV file(s)!")
-                else:
-                    st.error("No files generated. Please ensure you've provided metadata.")
-
-            # Display download buttons if files have been generated
-            if st.session_state.generated_tsv_files:
-                st.write("**Generated Files:**")
-                for filepath in st.session_state.generated_tsv_files:
-                    if os.path.exists(filepath):
-                        with open(filepath, 'r') as f:
-                            st.download_button(
-                                label=f"Download {os.path.basename(filepath)}",
-                                data=f.read(),
-                                file_name=os.path.basename(filepath),
-                                mime="text/tab-separated-values",
-                                key=f"download_{os.path.basename(filepath)}"
-                            )
-        
-        with col2:
-            if st.button("➡️ Proceed to Phase 1", use_container_width=True):
-                st.session_state.phase = 1
-                st.rerun()
+        if st.button("➡️ Proceed to Phase 1", use_container_width=True, type="primary"):
+            st.session_state.phase = 1
+            st.rerun()
 
 # ============================================================================
 # PHASE 1: STRUCTURE MAPPING & ORGANIZATION
