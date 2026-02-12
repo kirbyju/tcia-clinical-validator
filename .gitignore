@@ -162,4 +162,3 @@ cython_debug/
 # Output and test files
 output/
 sample_data.csv
-.DS_Store
