@@ -156,18 +156,25 @@ def lookup_orcid(orcid_id):
 @st.cache_data
 def load_resources():
     # Try loading from MDF first
-    schema, permissible_values = get_mdf_resources(RESOURCES_DIR)
-
-    if schema and permissible_values:
-        return schema, permissible_values
-
+    schema, mdf_pv = get_mdf_resources(RESOURCES_DIR)
+    
+    # Load legacy permissible values
+    legacy_pv = load_json(PERMISSIBLE_VALUES_FILE)
+    
+    if schema:
+        # Merge permissible values: MDF Enums take precedence, but legacy covers missing ones
+        final_pv = legacy_pv.copy()
+        if mdf_pv:
+            for k, v in mdf_pv.items():
+                final_pv[k] = v
+        return schema, final_pv
+        
     # Fallback to legacy JSON files
     st.warning("⚠️ Using legacy schema files. MDF model files not found or invalid.")
     schema = load_json(SCHEMA_FILE)
-    permissible_values = load_json(PERMISSIBLE_VALUES_FILE)
-    return schema, permissible_values
+    return schema, legacy_pv
 
-def render_dynamic_form(entity_name, schema, permissible_values, current_data=None, excluded_fields=None, custom_labels=None):
+def render_dynamic_form(entity_name, schema, permissible_values, current_data=None, excluded_fields=None, custom_labels=None, disabled=False, priority_fields=None):
     """
     Renders a dynamic form for an entity based on the schema.
     """
@@ -177,17 +184,28 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
         custom_labels = {}
     if current_data is None:
         current_data = {}
+    if priority_fields is None:
+        priority_fields = []
 
     entity_props = schema.get(entity_name, [])
     form_data = {}
 
     # Filter out excluded fields and ID fields
     props_to_show = [
-        p for p in entity_props
-        if p['Property'] not in excluded_fields
+        p for p in entity_props 
+        if p['Property'] not in excluded_fields 
         and not p['Property'].endswith('_id')
         and '.' not in p['Property']
     ]
+
+    # Reorder based on priority
+    def get_priority(p):
+        name = p['Property']
+        if name in priority_fields:
+            return priority_fields.index(name)
+        return len(priority_fields) + 1
+
+    props_to_show.sort(key=get_priority)
 
     for prop in props_to_show:
         prop_name = prop['Property']
@@ -195,7 +213,7 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
         is_required = prop.get('Required/optional') == 'R'
         if is_required:
             label += "*"
-
+        
         help_text = prop.get('Description', '')
         default_val = current_data.get(prop_name, "")
 
@@ -206,15 +224,15 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
                 option_labels = [f"{o['value']}" for o in options]
                 if not is_required:
                     option_labels = [""] + option_labels
-
+                
                 # Find index of default value
                 current_val = str(default_val) if default_val else ""
                 try:
                     default_idx = option_labels.index(current_val)
                 except ValueError:
                     default_idx = 0
-
-                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text)
+                
+                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
                 form_data[prop_name] = selected
             else:
                 if not is_required:
@@ -223,18 +241,18 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
                     default_idx = options.index(default_val)
                 except ValueError:
                     default_idx = 0
-                selected = st.selectbox(label, options=options, index=default_idx, help=help_text)
+                selected = st.selectbox(label, options=options, index=default_idx, help=help_text, disabled=disabled)
                 form_data[prop_name] = selected
         elif "description" in prop_name or "abstract" in prop_name or "acknowledgements" in prop_name:
-            form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text)
+            form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text, disabled=disabled)
         elif "number" in prop_name or "count" in prop_name or "size" in prop_name:
             try:
                 dv = int(default_val) if default_val else 0
             except:
                 dv = 0
-            form_data[prop_name] = st.number_input(label, value=dv, help=help_text)
+            form_data[prop_name] = st.number_input(label, value=dv, help=help_text, disabled=disabled)
         else:
-            form_data[prop_name] = st.text_input(label, value=str(default_val), help=help_text)
+            form_data[prop_name] = st.text_input(label, value=str(default_val), help=help_text, disabled=disabled)
 
     return form_data
 
@@ -325,10 +343,39 @@ if st.session_state.phase == 0:
     We'll go through this one entity at a time: **Program → Dataset → Investigator → Related Work**
     """)
     
-    tabs = st.tabs(["📁 Program", "📊 Dataset", "📋 CICADAS", "👤 Investigator", "📚 Related Work", "📝 Review & Generate"])
+    phase0_options = {
+        "Program": "📁 Program",
+        "Dataset": "📊 Dataset",
+        "CICADAS": "📋 CICADAS",
+        "Investigator": "👤 Investigator",
+        "Related_Work": "📚 Related Work",
+        "Review": "📝 Review & Generate"
+    }
     
+    # Initialize phase0_step if not in right format
+    if st.session_state.phase0_step not in phase0_options:
+        st.session_state.phase0_step = "Program"
+
+    # Use a radio button to simulate tabs for programmatic control
+    current_step = st.radio(
+        "Navigation",
+        options=list(phase0_options.keys()),
+        format_func=lambda x: phase0_options[x],
+        index=list(phase0_options.keys()).index(st.session_state.phase0_step),
+        horizontal=True,
+        label_visibility="collapsed",
+        key="phase0_radio"
+    )
+    
+    # Update state if changed via radio
+    if current_step != st.session_state.phase0_step:
+        st.session_state.phase0_step = current_step
+        st.rerun()
+
+    st.markdown("---")
+
     # TAB 1: Program
-    with tabs[0]:
+    if st.session_state.phase0_step == "Program":
         st.subheader("Program Information")
         st.info("""
         **Steering:** Most users should use "Community" as their program unless they are part of a major 
@@ -363,46 +410,51 @@ if st.session_state.phase == 0:
                 prog_data = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
 
             with st.form("program_form"):
-                # Always render dynamic form but if not custom, the fields might be prepopulated
+                # Always render dynamic form but if not custom, the fields are disabled
                 new_program_data = render_dynamic_form(
-                    "Program",
-                    schema,
-                    permissible_values,
-                    current_data=prog_data
+                    "Program", 
+                    schema, 
+                    permissible_values, 
+                    current_data=prog_data,
+                    disabled=not is_custom
                 )
 
-                submitted = st.form_submit_button("Save Program Information")
+                submitted = st.form_submit_button("Save & Next")
                 if submitted:
                     st.session_state.metadata['Program'] = [new_program_data]
-                    st.success("✅ Program information saved!")
+                    st.toast("✅ Program information saved!")
+                    st.session_state.phase0_step = 'Dataset'
                     st.rerun()
     
     # TAB 2: Dataset
-    with tabs[1]:
+    elif st.session_state.phase0_step == "Dataset":
         st.subheader("Dataset Information")
         
         current_ds_data = st.session_state.metadata['Dataset'][0] if st.session_state.metadata['Dataset'] else {}
-
+        
         with st.form("dataset_form"):
             dataset_data = render_dynamic_form(
                 "Dataset",
                 schema,
                 permissible_values,
                 current_data=current_ds_data,
-                excluded_fields=['dataset_description', 'dataset_abstract']
+                excluded_fields=['dataset_description', 'dataset_abstract'],
+                priority_fields=['dataset_long_name', 'dataset_short_name']
             )
             
-            submitted = st.form_submit_button("Save Dataset Information")
+            submitted = st.form_submit_button("Save & Next")
             if submitted:
                 # Keep existing description and abstract if they exist
                 dataset_data['dataset_description'] = current_ds_data.get('dataset_description', '')
                 dataset_data['dataset_abstract'] = current_ds_data.get('dataset_abstract', '')
 
                 st.session_state.metadata['Dataset'] = [dataset_data]
-                st.success("✅ Basic Dataset information saved! Now complete the CICADAS tab.")
+                st.toast("✅ Basic Dataset information saved!")
+                st.session_state.phase0_step = 'CICADAS'
+                st.rerun()
 
     # TAB 3: CICADAS
-    with tabs[2]:
+    elif st.session_state.phase0_step == "CICADAS":
         st.subheader("CICADAS Dataset Description")
         st.markdown("""
         Follow the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to ensure your dataset
@@ -456,7 +508,7 @@ if st.session_state.phase == 0:
                 help="Links to code, related datasets, or other tools."
             )
 
-            submitted = st.form_submit_button("Save CICADAS Description")
+            submitted = st.form_submit_button("Save & Next")
             if submitted:
                 # Update CICADAS state
                 st.session_state.cicadas = {
@@ -500,10 +552,12 @@ if st.session_state.phase == 0:
                 else:
                     st.warning("⚠️ Please fill out the basic Dataset information first.")
 
-                st.success("✅ CICADAS information saved and concatenated into Dataset Description!")
+                st.toast("✅ CICADAS information saved!")
+                st.session_state.phase0_step = 'Investigator'
+                st.rerun()
 
     # TAB 4: Investigator
-    with tabs[3]:
+    elif st.session_state.phase0_step == "Investigator":
         st.subheader("Investigator Information")
         st.markdown("Add one or more investigators for this dataset.")
         
@@ -547,7 +601,7 @@ if st.session_state.phase == 0:
                 'organization_name': st.session_state.get('inv_org', ''),
                 'person_orcid': orcid_input
             }
-
+            
             investigator_data = render_dynamic_form(
                 "Investigator",
                 schema,
@@ -555,7 +609,7 @@ if st.session_state.phase == 0:
                 current_data=inv_prepopulate
             )
             
-            submitted = st.form_submit_button("Add Investigator")
+            submitted = st.form_submit_button("Save & Next")
             if submitted:
                 if investigator_data.get('first_name') and investigator_data.get('last_name') and investigator_data.get('email'):
                     st.session_state.metadata['Investigator'].append(investigator_data)
@@ -565,13 +619,14 @@ if st.session_state.phase == 0:
                         if key in st.session_state:
                             st.session_state[key] = ""
 
-                    st.success(f"✅ Added investigator: {investigator_data['first_name']} {investigator_data['last_name']}")
+                    st.toast(f"✅ Added investigator: {investigator_data['first_name']} {investigator_data['last_name']}")
+                    st.session_state.phase0_step = 'Related_Work'
                     st.rerun()
                 else:
                     st.error("Please fill in all required fields (First Name, Last Name, Email).")
     
     # TAB 5: Related Work
-    with tabs[4]:
+    elif st.session_state.phase0_step == "Related_Work":
         st.subheader("Related Work / Publications")
         st.markdown("Add publications, DOIs, or related work for this dataset.")
         
@@ -626,7 +681,7 @@ if st.session_state.phase == 0:
                 'publication_title': st.session_state.get('rw_title', ''),
                 'authorship': st.session_state.get('rw_authors', '')
             }
-
+            
             work_data = render_dynamic_form(
                 "Related_Work",
                 schema,
@@ -634,7 +689,7 @@ if st.session_state.phase == 0:
                 current_data=rw_prepopulate
             )
             
-            submitted = st.form_submit_button("Add Related Work")
+            submitted = st.form_submit_button("Save & Next")
             if submitted:
                 if work_data.get('DOI') and work_data.get('publication_type') and work_data.get('relationship_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
@@ -644,13 +699,14 @@ if st.session_state.phase == 0:
                         if key in st.session_state:
                             st.session_state[key] = ""
 
-                    st.success(f"✅ Added related work: {work_data['DOI']}")
+                    st.toast(f"✅ Added related work: {work_data['DOI']}")
+                    st.session_state.phase0_step = 'Review'
                     st.rerun()
                 else:
                     st.error("Please fill in all required fields (DOI, Publication Type, Relationship Type).")
     
     # TAB 6: Review & Generate
-    with tabs[5]:
+    elif st.session_state.phase0_step == "Review":
         st.subheader("Review & Generate TSV Files")
         st.markdown("Review all your metadata and generate the TSV files.")
         
@@ -746,19 +802,48 @@ elif st.session_state.phase == 1:
     if uploaded_file is not None:
         # Read the file
         try:
+            df = None
             if uploaded_file.name.endswith('.csv'):
                 df = pd.read_csv(uploaded_file)
             elif uploaded_file.name.endswith('.tsv'):
                 df = pd.read_csv(uploaded_file, sep='\t')
             else:
-                df = pd.read_excel(uploaded_file)
+                # Excel file
+                excel_file = pd.ExcelFile(uploaded_file)
+                sheet_names = excel_file.sheet_names
+                if len(sheet_names) > 1:
+                    selected_sheet = st.selectbox("Select which sheet to process:", sheet_names)
+                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
+                else:
+                    df = pd.read_excel(uploaded_file)
             
-            st.session_state.uploaded_data = df
-            st.success(f"✅ Uploaded file with {len(df)} rows and {len(df.columns)} columns")
-            
-            # Show preview
-            with st.expander("Preview Data", expanded=True):
-                st.dataframe(df.head(10))
+            if df is not None:
+                # --- Basic Data Cleaning ---
+                # 1. Drop completely empty rows and columns
+                df = df.dropna(how='all').dropna(axis=1, how='all')
+                
+                # 2. Check for potential title rows (heuristic: first row has mostly NaNs)
+                # If the first non-empty row has fewer non-NaN values than the next row, 
+                # it might be a title row.
+                if len(df) > 1:
+                    first_row_non_nans = df.iloc[0].count()
+                    second_row_non_nans = df.iloc[1].count()
+                    if first_row_non_nans == 1 and second_row_non_nans > 1:
+                        st.info("💡 Detected a potential title row. Using the next row as header.")
+                        new_header = df.iloc[1]
+                        df = df[2:]
+                        df.columns = new_header
+                
+                # 3. Strip whitespace from headers and string values
+                df.columns = [str(c).strip() for c in df.columns]
+                df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+
+                st.session_state.uploaded_data = df
+                st.success(f"✅ Loaded data with {len(df)} rows and {len(df.columns)} columns")
+                
+                # Show preview
+                with st.expander("Preview Data", expanded=True):
+                    st.dataframe(df.head(10))
             
             st.markdown("---")
             st.subheader("Column Mapping")
@@ -904,7 +989,7 @@ elif st.session_state.phase == 2:
                                                 parts.append(f"Def: {defn}")
                                             if parts:
                                                 extra_info = " (" + " | ".join(parts) + ")"
-
+                                
                                 st.write(f"  - '{old_val}' → **{new_val}**{extra_info}")
                         
                         if st.button(f"Apply Corrections to {entity_name}", key=f"apply_{entity_name}"):
