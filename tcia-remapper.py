@@ -719,11 +719,7 @@ if st.session_state.phase == 0:
         ]
         
         for entity_key, label in review_entities:
-            col_title, col_dl = st.columns([4, 1])
-            with col_title:
-                exp = st.expander(label, expanded=True)
-            with col_dl:
-                st.write("") # Alignment
+            with st.expander(label, expanded=True):
                 filepath = generated_files_map.get(entity_key)
                 filename = os.path.basename(filepath) if filepath else f"{entity_key.lower()}.tsv"
                 data_exists = len(st.session_state.metadata.get(entity_key, [])) > 0
@@ -740,7 +736,8 @@ if st.session_state.phase == 0:
                 else:
                     st.button(f"Download {filename}", key=f"dl_btn_disabled_{entity_key}", disabled=True)
 
-            with exp:
+                st.markdown("---")
+
                 entity_data = st.session_state.metadata.get(entity_key)
                 if entity_data:
                     if entity_key in ["Investigator", "Related_Work"]:
@@ -827,10 +824,17 @@ elif st.session_state.phase == 1:
             
             # Get all target properties from schema
             all_properties = {}
+            excluded_entities = ['Program', 'Dataset', 'Investigator', 'Related_Work']
+            phase0_linkages = ['program.', 'dataset.', 'investigator.', 'related_work.']
+
             for entity_name, properties in schema.items():
+                if entity_name in excluded_entities:
+                    continue
                 for prop in properties:
                     prop_name = prop['Property']
-                    if not prop_name.endswith('_id') and prop_name != 'program.program_id':
+                    # Exclude linkage properties that refer to Phase 0 entities
+                    is_phase0_linkage = any(prop_name.startswith(prefix) for prefix in phase0_linkages)
+                    if not is_phase0_linkage:
                         all_properties[f"{entity_name}.{prop_name}"] = prop
             
             # Create mapping interface
