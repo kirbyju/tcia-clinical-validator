@@ -348,7 +348,6 @@ if import_file:
             new_investigators = []
             # Simple parser for (FAMILY, GIVEN) and optional OrcID
             # Heuristic: split by semicolon or newline
-            import re
             author_entries = re.split(r'[;\n]', authors_raw)
             for entry in author_entries:
                 entry = entry.strip()
@@ -358,8 +357,14 @@ if import_file:
                 orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
                 orcid = orcid_match.group(1) if orcid_match else ""
 
-                # Remove OrcID and parens from name part
-                name_part = re.sub(r'\(.*?\)', '', entry).strip()
+                # Remove OrcID and parens from name part (specifically targeting OrcID pattern)
+                name_part = re.sub(r'\(\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)', '', entry).strip()
+                # Also try to remove just the OrcID if it's not in parens
+                name_part = re.sub(r'\d{4}-\d{4}-\d{4}-\d{3}[\dX]', '', name_part).strip()
+
+                # If name is wrapped in parentheses, remove them
+                if name_part.startswith('(') and name_part.endswith(')'):
+                    name_part = name_part[1:-1].strip()
 
                 parts = name_part.split(',')
                 last_name = parts[0].strip() if len(parts) > 0 else ""

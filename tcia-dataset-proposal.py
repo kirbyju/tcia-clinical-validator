@@ -16,26 +16,22 @@ from reportlab.lib.utils import simpleSplit
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
-# Constants
+# Constants & Configuration
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
 AGREEMENT_TEMPLATE = os.path.join(RESOURCES_DIR, 'agreement_template.pdf')
-HELP_DESK_EMAIL = "help@cancerimagingarchive.net"
+HELP_DESK_EMAIL = os.getenv("TCIA_HELP_DESK_EMAIL", "help@cancerimagingarchive.net")
+
+# Server-side SMTP configuration
+SMTP_SERVER = os.getenv("SMTP_SERVER")
+SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
+SMTP_USER = os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
 st.title("📋 TCIA Dataset Proposal Form")
 st.markdown("""
 Welcome to the TCIA Dataset Proposal Form. Please fill out the information below to submit a proposal for
 publishing a new dataset or analysis results on The Cancer Imaging Archive.
 """)
-
-# Sidebar for SMTP settings
-with st.sidebar:
-    st.header("📧 Email Configuration")
-    st.info("Optional: Provide SMTP settings to automatically email the proposal.")
-    smtp_server = st.text_input("SMTP Server", value=os.getenv("SMTP_SERVER", "smtp.gmail.com"))
-    smtp_port = st.number_input("SMTP Port", value=int(os.getenv("SMTP_PORT", 587)))
-    smtp_user = st.text_input("SMTP User", value=os.getenv("SMTP_USER", ""))
-    smtp_password = st.text_input("SMTP Password", value=os.getenv("SMTP_PASSWORD", ""), type="password")
-    send_to = st.text_input("Send to", value=HELP_DESK_EMAIL)
 
 # Initial choice
 proposal_type = st.radio(
@@ -62,7 +58,7 @@ with st.form("proposal_form"):
     st.subheader("Dataset Publication Details")
     title = st.text_input("Suggest a descriptive title for your dataset*", help="Similar to a manuscript title.")
     nickname = st.text_input("Suggest a shorter nickname for your dataset*", help="Must be < 30 characters, letters, numbers, and dashes only.")
-    authors = st.text_area("List the authors of this data set*", help="Format: (FAMILY, GIVEN). Please include OrcIDs.")
+    authors = st.text_area("List the authors of this data set*", help="Format: (FAMILY, GIVEN). Please include OrcIDs (e.g. 0000-0000-0000-0000).")
     abstract = st.text_area("Dataset Abstract*", help="Focus on describing the dataset itself.")
 
     st.subheader("Data Collection Details")
@@ -211,6 +207,15 @@ if submit_button:
                 zip_file.writestr("agreement_with_exhibit_a.pdf", pdf_buffer.getvalue())
         zip_buffer.seek(0)
 
+        # Store in session state for later use in email
+        st.session_state['proposal_files'] = {
+            'tsv': tsv_buffer.getvalue(),
+            'docx': docx_buffer.getvalue(),
+            'pdf': pdf_buffer.getvalue() if pdf_success else None,
+            'zip': zip_buffer.getvalue(),
+            'title': title
+        }
+
         st.success("✅ Proposal documents generated successfully!")
 
         col1, col2, col3 = st.columns(3)
@@ -224,38 +229,46 @@ if submit_button:
 
         st.markdown("---")
         st.subheader("Email Proposal")
-        if st.button("📧 Send Proposal to TCIA Help Desk"):
-            if not smtp_user or not smtp_password:
-                st.warning("⚠️ SMTP credentials not provided in sidebar. Please provide them to send email.")
-            else:
-                try:
-                    msg = MIMEMultipart()
-                    msg['From'] = smtp_user
-                    msg['To'] = send_to
-                    msg['Subject'] = f"New Dataset Proposal: {title}"
 
-                    body = f"A new dataset proposal has been submitted via the Dataset Proposal Form.\n\nType: {proposal_type}\nTitle: {title}\nSubmitter: {email}"
-                    msg.attach(MIMEText(body, 'plain'))
+        # Determine if we can send automatically
+        can_send_auto = all([SMTP_SERVER, SMTP_USER, SMTP_PASSWORD])
 
-                    part = MIMEBase('application', 'zip')
-                    part.set_payload(zip_buffer.getvalue())
-                    encoders.encode_base64(part)
-                    part.add_header('Content-Disposition', 'attachment; filename="proposal_package.zip"')
-                    msg.attach(part)
+        if not can_send_auto:
+            st.info(f"💡 **Manual Submission**: Please download the generated files above and email them as attachments to **{HELP_DESK_EMAIL}**. Alternatively, provide SMTP credentials in the environment to send automatically.")
+        else:
+            if st.button("📧 Send Proposal to TCIA Help Desk"):
+                files = st.session_state.get('proposal_files')
+                if files:
+                    try:
+                        msg = MIMEMultipart()
+                        msg['From'] = SMTP_USER
+                        msg['To'] = HELP_DESK_EMAIL
+                        msg['Subject'] = f"New Dataset Proposal: {files['title']}"
 
-                    server = smtplib.SMTP(smtp_server, smtp_port)
-                    server.starttls()
-                    server.login(smtp_user, smtp_password)
-                    server.send_message(msg)
-                    server.quit()
-                    st.success(f"📨 Proposal sent to {send_to}!")
-                except Exception as e:
-                    st.error(f"Failed to send email: {e}")
+                        body = f"A new dataset proposal has been submitted via the Dataset Proposal Form.\n\nType: {proposal_type}\nTitle: {files['title']}\nSubmitter: {email}"
+                        msg.attach(MIMEText(body, 'plain'))
+
+                        part = MIMEBase('application', 'zip')
+                        part.set_payload(files['zip'])
+                        encoders.encode_base64(part)
+                        part.add_header('Content-Disposition', 'attachment; filename="proposal_package.zip"')
+                        msg.attach(part)
+
+                        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+                        server.starttls()
+                        server.login(SMTP_USER, SMTP_PASSWORD)
+                        server.send_message(msg)
+                        server.quit()
+                        st.success(f"📨 Proposal sent to {HELP_DESK_EMAIL}!")
+                    except Exception as e:
+                        st.error(f"Failed to send email: {e}")
+                else:
+                    st.warning("Please generate proposal documents first.")
 
 # Footer
 st.markdown("---")
-st.markdown("""
+st.markdown(f"""
 <div style='text-align: center; color: gray; font-size: 0.9em;'>
-TCIA Dataset Proposal Form | help@cancerimagingarchive.net
+TCIA Dataset Proposal Form | {HELP_DESK_EMAIL}
 </div>
 """, unsafe_allow_html=True)
