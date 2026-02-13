@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import re
 import os
 import sys
 import requests
@@ -317,9 +318,87 @@ phase_names = ["Phase 0: Dataset-Level Metadata", "Phase 1: Structure Mapping", 
 st.sidebar.title("Progress")
 st.sidebar.write(f"**Current Phase:** {phase_names[st.session_state.phase]}")
 
-if st.sidebar.button("🔄 Reset Application"):
+col_reset, col_import = st.sidebar.columns(2)
+if col_reset.button("🔄 Reset App"):
     reset_app()
     st.rerun()
+
+import_file = col_import.file_uploader("📥 Import Proposal", type=['tsv'], label_visibility="collapsed")
+
+if import_file:
+    try:
+        import_df = pd.read_csv(import_file, sep='\t')
+        if not import_df.empty:
+            proposal_data = import_df.iloc[0].to_dict()
+
+            # Map Dataset
+            ds_data = {
+                'dataset_long_name': proposal_data.get('Title', ''),
+                'dataset_short_name': proposal_data.get('Nickname', ''),
+                'dataset_abstract': proposal_data.get('Abstract', ''),
+                'number_of_participants': proposal_data.get('num_subjects', 0)
+            }
+            st.session_state.metadata['Dataset'] = [ds_data]
+
+            # Map Program (Default to Community)
+            st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
+
+            # Map Investigators (Authors)
+            authors_raw = str(proposal_data.get('Authors', ''))
+            new_investigators = []
+            # Simple parser for (FAMILY, GIVEN) and optional OrcID
+            # Heuristic: split by semicolon or newline
+            author_entries = re.split(r'[;\n]', authors_raw)
+            for entry in author_entries:
+                entry = entry.strip()
+                if not entry: continue
+
+                # Try to find OrcID
+                orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
+                orcid = orcid_match.group(1) if orcid_match else ""
+
+                # Remove OrcID and parens from name part (specifically targeting OrcID pattern)
+                name_part = re.sub(r'\(\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)', '', entry).strip()
+                # Also try to remove just the OrcID if it's not in parens
+                name_part = re.sub(r'\d{4}-\d{4}-\d{4}-\d{3}[\dX]', '', name_part).strip()
+
+                # If name is wrapped in parentheses, remove them
+                if name_part.startswith('(') and name_part.endswith(')'):
+                    name_part = name_part[1:-1].strip()
+
+                parts = name_part.split(',')
+                last_name = parts[0].strip() if len(parts) > 0 else ""
+                first_name = parts[1].strip() if len(parts) > 1 else ""
+
+                if first_name or last_name:
+                    new_investigators.append({
+                        'first_name': first_name,
+                        'last_name': last_name,
+                        'person_orcid': orcid,
+                        'email': '', # Not provided in author list
+                        'organization_name': ''
+                    })
+            if new_investigators:
+                st.session_state.metadata['Investigator'] = new_investigators
+
+            # Map Related Work
+            rel_works = []
+            for k in ['citation_primary', 'citations_content', 'additional_publications']:
+                val = proposal_data.get(k)
+                if val and str(val).strip():
+                    rel_works.append({
+                        'publication_title': str(val).strip(),
+                        'publication_type': 'Journal Article', # Default
+                        'authorship': '',
+                        'DOI': ''
+                    })
+            if rel_works:
+                st.session_state.metadata['Related_Work'] = rel_works
+
+            st.sidebar.success("✅ Proposal imported!")
+            st.rerun()
+    except Exception as e:
+        st.sidebar.error(f"Import failed: {e}")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Navigation")
