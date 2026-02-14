@@ -79,13 +79,18 @@ st.markdown("---")
 # Form Questions
 with st.form("proposal_form"):
     st.subheader("Contact Information")
+    if SMTP_SERVER and SMTP_USER and SMTP_PASSWORD:
+        st.info(f"💡 **Note**: If you choose to email this proposal, a copy will be sent to the Scientific, Technical, and Legal points of contact listed below.")
+
     col1, col2 = st.columns(2)
     with col1:
-        email = st.text_input("Email Address*", help="A copy of your responses will be emailed to this address.")
-        tech_poc = st.text_input("Technical Point of Contact*", help="Name, email, and phone number for the person involved in sending the data.")
+        sci_poc_name = st.text_input("Scientific POC Name*", help="The person to contact about the proposal and data collection.")
+        tech_poc_name = st.text_input("Technical POC Name*", help="The person involved in sending the data.")
+        legal_poc_name = st.text_input("Legal POC Name*", help="Authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.")
     with col2:
-        sci_poc = st.text_input("Scientific Point of Contact*", help="Name, email, and phone number for the person to contact about the proposal and data collection.")
-        legal_poc = st.text_input("Legal/Contracts Administrator*", help="Name and email of an authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.")
+        sci_poc_email = st.text_input("Scientific POC Email*")
+        tech_poc_email = st.text_input("Technical POC Email*")
+        legal_poc_email = st.text_input("Legal POC Email*")
 
     st.subheader("Dataset Publication Details")
     title = st.text_input("Suggest a descriptive title for your dataset*", help="Similar to a manuscript title.")
@@ -118,31 +123,19 @@ with st.form("proposal_form"):
             options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"]
         )
         extra_data['file_formats'] = st.text_area("Specify the file format utilized for each type of data*")
-        col1, col2 = st.columns(2)
-        with col1:
-            extra_data['num_subjects'] = st.number_input("How many subjects are in your data set?*", min_value=0)
-        with col2:
-            extra_data['num_studies'] = st.text_input("How many total radiology studies or pathology slides?*")
+        extra_data['num_subjects'] = st.number_input("How many subjects are in your data set?*", min_value=0)
         extra_data['modifications'] = st.text_area("Describe any steps taken to modify data prior to submission*")
         extra_data['faces'] = st.radio("Does your data contain any images of patient faces?*", options=["Yes", "No"])
         extra_data['exceptions'] = st.text_input("Do you need to request any exceptions to TCIA's Open Access Policy?", value="No exceptions requested")
-        extra_data['citations_content'] = st.text_area("Publications specifically about the contents of the dataset")
-
     else: # Analysis Results
         extra_data['collections_analyzed'] = st.text_input("Which TCIA collection(s) did you analyze?*")
         extra_data['derived_types'] = st.multiselect(
             "What types of derived data are included in the dataset?*",
             options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"]
         )
-        col1, col2 = st.columns(2)
-        with col1:
-            extra_data['num_subjects'] = st.number_input("How many patients are included in your dataset?*", min_value=0)
-        with col2:
-            extra_data['series_slides'] = st.text_input("Number of DICOM series or digitized pathology slides")
+        extra_data['num_subjects'] = st.number_input("How many patients are included in your dataset?*", min_value=0)
         extra_data['image_records'] = st.radio("Do you have records to indicate exactly which TCIA images analyzed?*", options=["Yes, I know exactly.", "No, I need assistance."])
         extra_data['file_formats'] = st.text_area("Specify the file format utilized for each type of data*")
-        extra_data['citation_primary'] = st.text_area("Publication people should cite when utilizing this data")
-
     # Shared bottom fields
     col1, col2 = st.columns(2)
     with col1:
@@ -150,6 +143,7 @@ with st.form("proposal_form"):
     with col2:
         time_constraints = st.text_input("Are there any time constraints associated with sharing your data set?*")
 
+    extra_data['descriptor_publication'] = st.text_area("Is there a related dataset descriptor publication? (i.e. Nature Scientific Data article on how to use the dataset)")
     extra_data['additional_publications'] = st.text_area("Any additional publications derived from these data?")
     extra_data['acknowledgments'] = st.text_area("Acknowledgments or funding statements*")
     extra_data['why_tcia'] = st.multiselect(
@@ -161,17 +155,26 @@ with st.form("proposal_form"):
 
 # Processing after submission
 if submit_button:
-    # 1. Validation (simplified)
-    if not email or not title or not abstract:
-        st.error("Please fill in all required fields marked with *")
+    # 1. Validation
+    missing_fields = []
+    if not title: missing_fields.append("Dataset Title")
+    if not abstract: missing_fields.append("Dataset Abstract")
+    if not sci_poc_name or not sci_poc_email: missing_fields.append("Scientific POC")
+    if not tech_poc_name or not tech_poc_email: missing_fields.append("Technical POC")
+    if not legal_poc_name or not legal_poc_email: missing_fields.append("Legal POC")
+
+    if missing_fields:
+        st.error(f"Please fill in all required fields: {', '.join(missing_fields)}")
     else:
         # Prepare data for files
         all_responses = {
             "Proposal Type": proposal_type,
-            "Email": email,
-            "Scientific POC": sci_poc,
-            "Technical POC": tech_poc,
-            "Legal POC": legal_poc,
+            "Scientific POC Name": sci_poc_name,
+            "Scientific POC Email": sci_poc_email,
+            "Technical POC Name": tech_poc_name,
+            "Technical POC Email": tech_poc_email,
+            "Legal POC Name": legal_poc_name,
+            "Legal POC Email": legal_poc_email,
             "Time Constraints": time_constraints,
             "Title": title,
             "Nickname": nickname,
@@ -257,63 +260,67 @@ if submit_button:
                 zip_file.writestr("agreement_with_exhibit_a.pdf", pdf_buffer.getvalue())
         zip_buffer.seek(0)
 
-        # Store in session state for later use in email
+        # Store in session state for later use in email and to persist buttons
         st.session_state['proposal_files'] = {
             'tsv': tsv_buffer.getvalue(),
             'docx': docx_buffer.getvalue(),
             'pdf': pdf_buffer.getvalue() if pdf_success else None,
             'zip': zip_buffer.getvalue(),
-            'title': title
+            'title': title,
+            'proposal_type': proposal_type,
+            'pocs': [sci_poc_email, tech_poc_email, legal_poc_email]
         }
+        st.session_state['proposal_generated'] = True
 
-        st.success("✅ Proposal documents generated successfully!")
+if st.session_state.get('proposal_generated'):
+    files = st.session_state.get('proposal_files')
+    st.success("✅ Proposal documents generated successfully!")
 
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.download_button("Download TSV (Import to Remapper)", data=tsv_buffer.getvalue(), file_name="proposal.tsv", mime="text/tab-separated-values")
-        with col2:
-            st.download_button("Download DOCX Summary", data=docx_buffer.getvalue(), file_name="proposal.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
-        with col3:
-            if pdf_success:
-                st.download_button("Download PDF Agreement", data=pdf_buffer.getvalue(), file_name="agreement_updated.pdf", mime="application/pdf")
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.download_button("Download TSV (Import to Remapper)", data=files['tsv'], file_name="proposal.tsv", mime="text/tab-separated-values")
+    with col2:
+        st.download_button("Download DOCX Summary", data=files['docx'], file_name="proposal.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+    with col3:
+        if files['pdf']:
+            st.download_button("Download PDF Agreement", data=files['pdf'], file_name="agreement_updated.pdf", mime="application/pdf")
 
+    # Determine if we can send automatically
+    can_send_auto = all([SMTP_SERVER, SMTP_USER, SMTP_PASSWORD])
+
+    if not can_send_auto:
+        st.info("💡 **Please download these documents and keep a copy for your records.**")
+        st.info(f"💡 **Manual Submission**: Please email the generated files as attachments to **{HELP_DESK_EMAIL}**.")
+    else:
         st.markdown("---")
         st.subheader("Email Proposal")
+        if st.button("📧 Send Proposal to TCIA Help Desk"):
+            try:
+                msg = MIMEMultipart()
+                msg['From'] = SMTP_USER
+                msg['To'] = HELP_DESK_EMAIL
+                msg['Cc'] = ", ".join(files['pocs'])
+                msg['Subject'] = f"New Dataset Proposal: {files['title']}"
 
-        # Determine if we can send automatically
-        can_send_auto = all([SMTP_SERVER, SMTP_USER, SMTP_PASSWORD])
+                body = f"A new dataset proposal has been submitted via the Dataset Proposal Form.\n\nType: {files['proposal_type']}\nTitle: {files['title']}\nSubmitters: {', '.join(files['pocs'])}"
+                msg.attach(MIMEText(body, 'plain'))
 
-        if not can_send_auto:
-            st.info(f"💡 **Manual Submission**: Please download the generated files above and email them as attachments to **{HELP_DESK_EMAIL}**. Alternatively, provide SMTP credentials in the environment to send automatically.")
-        else:
-            if st.button("📧 Send Proposal to TCIA Help Desk"):
-                files = st.session_state.get('proposal_files')
-                if files:
-                    try:
-                        msg = MIMEMultipart()
-                        msg['From'] = SMTP_USER
-                        msg['To'] = HELP_DESK_EMAIL
-                        msg['Subject'] = f"New Dataset Proposal: {files['title']}"
+                part = MIMEBase('application', 'zip')
+                part.set_payload(files['zip'])
+                encoders.encode_base64(part)
+                part.add_header('Content-Disposition', 'attachment; filename="proposal_package.zip"')
+                msg.attach(part)
 
-                        body = f"A new dataset proposal has been submitted via the Dataset Proposal Form.\n\nType: {proposal_type}\nTitle: {files['title']}\nSubmitter: {email}"
-                        msg.attach(MIMEText(body, 'plain'))
-
-                        part = MIMEBase('application', 'zip')
-                        part.set_payload(files['zip'])
-                        encoders.encode_base64(part)
-                        part.add_header('Content-Disposition', 'attachment; filename="proposal_package.zip"')
-                        msg.attach(part)
-
-                        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-                        server.starttls()
-                        server.login(SMTP_USER, SMTP_PASSWORD)
-                        server.send_message(msg)
-                        server.quit()
-                        st.success(f"📨 Proposal sent to {HELP_DESK_EMAIL}!")
-                    except Exception as e:
-                        st.error(f"Failed to send email: {e}")
-                else:
-                    st.warning("Please generate proposal documents first.")
+                server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+                server.starttls()
+                server.login(SMTP_USER, SMTP_PASSWORD)
+                # Send to both To and Cc addresses
+                recipients = [HELP_DESK_EMAIL] + files['pocs']
+                server.send_message(msg, to_addrs=recipients)
+                server.quit()
+                st.success(f"📨 Proposal sent to {HELP_DESK_EMAIL} and CC'd to POCs!")
+            except Exception as e:
+                st.error(f"Failed to send email: {e}")
 
 # Footer
 st.markdown("---")
