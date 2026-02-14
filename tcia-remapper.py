@@ -264,7 +264,7 @@ def reset_app():
     for key in keys_to_remove:
         del st.session_state[key]
     st.session_state.phase = 0
-    st.session_state.phase0_step = 'program'
+    st.session_state.phase0_step = 'Start'
 
 # Initialize session state
 if 'phase' not in st.session_state:
@@ -275,7 +275,7 @@ if 'phase' not in st.session_state:
         'Investigator': [],
         'Related_Work': []
     }
-    st.session_state.phase0_step = 'program'
+    st.session_state.phase0_step = 'Start'
     st.session_state.uploaded_data = None
     st.session_state.column_mapping = {}
     st.session_state.structure_approved = False
@@ -318,87 +318,9 @@ phase_names = ["Phase 0: Dataset-Level Metadata", "Phase 1: Structure Mapping", 
 st.sidebar.title("Progress")
 st.sidebar.write(f"**Current Phase:** {phase_names[st.session_state.phase]}")
 
-col_reset, col_import = st.sidebar.columns(2)
-if col_reset.button("🔄 Reset App"):
+if st.sidebar.button("🔄 Reset App"):
     reset_app()
     st.rerun()
-
-import_file = col_import.file_uploader("📥 Import Proposal", type=['tsv'], label_visibility="collapsed")
-
-if import_file:
-    try:
-        import_df = pd.read_csv(import_file, sep='\t')
-        if not import_df.empty:
-            proposal_data = import_df.iloc[0].to_dict()
-
-            # Map Dataset
-            ds_data = {
-                'dataset_long_name': proposal_data.get('Title', ''),
-                'dataset_short_name': proposal_data.get('Nickname', ''),
-                'dataset_abstract': proposal_data.get('Abstract', ''),
-                'number_of_participants': proposal_data.get('num_subjects', 0)
-            }
-            st.session_state.metadata['Dataset'] = [ds_data]
-
-            # Map Program (Default to Community)
-            st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
-
-            # Map Investigators (Authors)
-            authors_raw = str(proposal_data.get('Authors', ''))
-            new_investigators = []
-            # Simple parser for (FAMILY, GIVEN) and optional OrcID
-            # Heuristic: split by semicolon or newline
-            author_entries = re.split(r'[;\n]', authors_raw)
-            for entry in author_entries:
-                entry = entry.strip()
-                if not entry: continue
-
-                # Try to find OrcID
-                orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
-                orcid = orcid_match.group(1) if orcid_match else ""
-
-                # Remove OrcID and parens from name part (specifically targeting OrcID pattern)
-                name_part = re.sub(r'\(\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)', '', entry).strip()
-                # Also try to remove just the OrcID if it's not in parens
-                name_part = re.sub(r'\d{4}-\d{4}-\d{4}-\d{3}[\dX]', '', name_part).strip()
-
-                # If name is wrapped in parentheses, remove them
-                if name_part.startswith('(') and name_part.endswith(')'):
-                    name_part = name_part[1:-1].strip()
-
-                parts = name_part.split(',')
-                last_name = parts[0].strip() if len(parts) > 0 else ""
-                first_name = parts[1].strip() if len(parts) > 1 else ""
-
-                if first_name or last_name:
-                    new_investigators.append({
-                        'first_name': first_name,
-                        'last_name': last_name,
-                        'person_orcid': orcid,
-                        'email': '', # Not provided in author list
-                        'organization_name': ''
-                    })
-            if new_investigators:
-                st.session_state.metadata['Investigator'] = new_investigators
-
-            # Map Related Work
-            rel_works = []
-            for k in ['citation_primary', 'citations_content', 'additional_publications']:
-                val = proposal_data.get(k)
-                if val and str(val).strip():
-                    rel_works.append({
-                        'publication_title': str(val).strip(),
-                        'publication_type': 'Journal Article', # Default
-                        'authorship': '',
-                        'DOI': ''
-                    })
-            if rel_works:
-                st.session_state.metadata['Related_Work'] = rel_works
-
-            st.sidebar.success("✅ Proposal imported!")
-            st.rerun()
-    except Exception as e:
-        st.sidebar.error(f"Import failed: {e}")
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Navigation")
@@ -419,10 +341,11 @@ if st.session_state.phase == 0:
     st.header("Phase 0: Dataset-Level Metadata Collection")
     st.markdown("""
     Before remapping your source files, let's collect high-level metadata for your submission.
-    We'll go through this one entity at a time: **Program → Dataset → Investigator → Related Work**
+    We'll go through this one entity at a time: **Start → Program → Dataset → Investigator → Related Work**
     """)
     
     phase0_options = {
+        "Start": "🚀 Start",
         "Program": "📁 Program",
         "Dataset": "📊 Dataset",
         "CICADAS": "📋 CICADAS",
@@ -452,8 +375,92 @@ if st.session_state.phase == 0:
 
     st.markdown("---")
 
+    # TAB 0: Start
+    if st.session_state.phase0_step == "Start":
+        st.subheader("Welcome to Phase 0")
+        st.markdown("""
+        Before we begin, would you like to import your TCIA Dataset Proposal Form?
+        Importing a proposal will automatically fill in many of the fields for you, saving you time.
+        """)
+
+        import_file = st.file_uploader("📥 Import TCIA Proposal Form (TSV)", type=['tsv'])
+
+        if import_file:
+            try:
+                import_df = pd.read_csv(import_file, sep='\t')
+                if not import_df.empty:
+                    proposal_data = import_df.iloc[0].to_dict()
+
+                    # Map Dataset
+                    ds_data = {
+                        'dataset_long_name': proposal_data.get('Title', ''),
+                        'dataset_short_name': proposal_data.get('Nickname', ''),
+                        'dataset_abstract': proposal_data.get('Abstract', ''),
+                        'number_of_participants': proposal_data.get('num_subjects', 0)
+                    }
+                    st.session_state.metadata['Dataset'] = [ds_data]
+
+                    # Update CICADAS abstract
+                    st.session_state.cicadas['abstract'] = proposal_data.get('Abstract', '')
+
+                    # Map Program (Default to Community)
+                    st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
+
+                    # Map Investigators (Authors)
+                    authors_raw = str(proposal_data.get('Authors', ''))
+                    new_investigators = []
+                    author_entries = re.split(r'[;\n]', authors_raw)
+                    for entry in author_entries:
+                        entry = entry.strip()
+                        if not entry: continue
+
+                        orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
+                        orcid = orcid_match.group(1) if orcid_match else ""
+                        name_part = re.sub(r'\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?', '', entry).strip()
+                        if name_part.startswith('(') and name_part.endswith(')'):
+                            name_part = name_part[1:-1].strip()
+
+                        parts = name_part.split(',')
+                        last_name = parts[0].strip() if len(parts) > 0 else ""
+                        first_name = parts[1].strip() if len(parts) > 1 else ""
+
+                        if first_name or last_name:
+                            new_investigators.append({
+                                'first_name': first_name,
+                                'last_name': last_name,
+                                'person_orcid': orcid,
+                                'email': '',
+                                'organization_name': ''
+                            })
+                    if new_investigators:
+                        st.session_state.metadata['Investigator'] = new_investigators
+
+                    # Map Related Work
+                    rel_works = []
+                    for k in ['citation_primary', 'citations_content', 'additional_publications']:
+                        val = proposal_data.get(k)
+                        if val and str(val).strip():
+                            rel_works.append({
+                                'publication_title': str(val).strip(),
+                                'publication_type': 'Journal Article',
+                                'authorship': '',
+                                'DOI': ''
+                            })
+                    if rel_works:
+                        st.session_state.metadata['Related_Work'] = rel_works
+
+                    st.success("✅ Proposal imported successfully!")
+                    st.info("The metadata has been pre-populated. Click 'Proceed' below to verify the information in each section.")
+            except Exception as e:
+                st.error(f"Import failed: {e}")
+
+        st.markdown("---")
+        if st.button("Proceed to Metadata Collection →", use_container_width=True, type="primary"):
+            st.session_state.phase0_step = 'Program'
+            st.rerun()
+
     # TAB 1: Program
-    if st.session_state.phase0_step == "Program":
+    elif st.session_state.phase0_step == "Program":
         st.subheader("Program Information")
         st.info("""
         **Steering:** Most users should use "Community" as their program unless they are part of a major 
