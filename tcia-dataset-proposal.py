@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import os
 import io
+import json
 import zipfile
 import smtplib
 from email.mime.multipart import MIMEMultipart
@@ -13,11 +14,39 @@ import PyPDF2
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
+import importlib.util
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
 # Constants & Configuration
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
+
+# Import MDF parser
+skill_dir = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill')
+mdf_parser_path = os.path.join(skill_dir, 'mdf_parser.py')
+spec_mdf = importlib.util.spec_from_file_location("mdf_parser", mdf_parser_path)
+mdf_parser = importlib.util.module_from_spec(spec_mdf)
+spec_mdf.loader.exec_module(mdf_parser)
+get_mdf_resources = mdf_parser.get_mdf_resources
+
+PERMISSIBLE_VALUES_FILE = os.path.join(RESOURCES_DIR, 'permissible_values.json')
+
+def load_json(filepath):
+    with open(filepath, 'r') as f:
+        return json.load(f)
+
+@st.cache_data
+def load_mdf_data():
+    schema, mdf_pv = get_mdf_resources(RESOURCES_DIR)
+    legacy_pv = load_json(PERMISSIBLE_VALUES_FILE)
+
+    final_pv = legacy_pv.copy()
+    if mdf_pv:
+        for k, v in mdf_pv.items():
+            final_pv[k] = v
+    return schema, final_pv
+
+schema, permissible_values = load_mdf_data()
 AGREEMENT_TEMPLATE = os.path.join(RESOURCES_DIR, 'agreement_template.pdf')
 HELP_DESK_EMAIL = os.getenv("TCIA_HELP_DESK_EMAIL", "help@cancerimagingarchive.net")
 
@@ -50,25 +79,36 @@ st.markdown("---")
 # Form Questions
 with st.form("proposal_form"):
     st.subheader("Contact Information")
-    email = st.text_input("Email Address*", help="A copy of your responses will be emailed to this address.")
-    sci_poc = st.text_input("Scientific Point of Contact*", help="Name, email, and phone number for the person to contact about the proposal and data collection.")
-    tech_poc = st.text_input("Technical Point of Contact*", help="Name, email, and phone number for the person involved in sending the data.")
-    legal_poc = st.text_input("Legal/Contracts Administrator*", help="Name and email of an authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.")
+    col1, col2 = st.columns(2)
+    with col1:
+        email = st.text_input("Email Address*", help="A copy of your responses will be emailed to this address.")
+        tech_poc = st.text_input("Technical Point of Contact*", help="Name, email, and phone number for the person involved in sending the data.")
+    with col2:
+        sci_poc = st.text_input("Scientific Point of Contact*", help="Name, email, and phone number for the person to contact about the proposal and data collection.")
+        legal_poc = st.text_input("Legal/Contracts Administrator*", help="Name and email of an authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.")
 
     st.subheader("Dataset Publication Details")
     title = st.text_input("Suggest a descriptive title for your dataset*", help="Similar to a manuscript title.")
-    nickname = st.text_input("Suggest a shorter nickname for your dataset*", help="Must be < 30 characters, letters, numbers, and dashes only.")
+    nickname = st.text_input("Suggest a shorter nickname for your dataset*", help="Must be < 30 characters, letters, numbers, and dashes only.", max_chars=30)
     authors = st.text_area("List the authors of this data set*", help="Format: (FAMILY, GIVEN). Please include OrcIDs (e.g. 0000-0000-0000-0000).")
-    abstract = st.text_area("Dataset Abstract*", help="Focus on describing the dataset itself.")
+    abstract = st.text_area("Dataset Abstract*", help="Focus on describing the dataset itself.", max_chars=1000)
 
     st.subheader("Data Collection Details")
-    published_elsewhere = st.text_area("Has this data ever been published elsewhere?*", help="If so, why publish on TCIA? Do you intend for the original to remain accessible?")
+    published_elsewhere = st.text_input("Has this data ever been published elsewhere?*", help="If so, why publish on TCIA? Do you intend for the original to remain accessible?")
 
     # Adaptive fields
     extra_data = {}
     if proposal_type == "New Collection Proposal":
-        extra_data['disease_site'] = st.text_input("Primary disease site/location*")
-        extra_data['diagnosis'] = st.text_input("Histologic diagnosis*")
+        col1, col2 = st.columns(2)
+        with col1:
+            site_raw = permissible_values.get('primary_site', []) if permissible_values else []
+            site_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in site_raw])))
+            extra_data['disease_site'] = st.selectbox("Primary disease site/location*", options=[""] + site_options)
+        with col2:
+            diag_raw = permissible_values.get('primary_diagnosis', []) if permissible_values else []
+            diag_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in diag_raw])))
+            extra_data['diagnosis'] = st.selectbox("Histologic diagnosis*", options=[""] + diag_options)
+
         extra_data['image_types'] = st.multiselect(
             "Which image types are included in the data set?*",
             options=["MR", "CT", "PET", "PET-CT", "PET-MR", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"]
@@ -78,8 +118,11 @@ with st.form("proposal_form"):
             options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"]
         )
         extra_data['file_formats'] = st.text_area("Specify the file format utilized for each type of data*")
-        extra_data['num_subjects'] = st.number_input("How many subjects are in your data set?*", min_value=0)
-        extra_data['num_studies'] = st.text_input("How many total radiology studies or pathology slides?*")
+        col1, col2 = st.columns(2)
+        with col1:
+            extra_data['num_subjects'] = st.number_input("How many subjects are in your data set?*", min_value=0)
+        with col2:
+            extra_data['num_studies'] = st.text_input("How many total radiology studies or pathology slides?*")
         extra_data['modifications'] = st.text_area("Describe any steps taken to modify data prior to submission*")
         extra_data['faces'] = st.radio("Does your data contain any images of patient faces?*", options=["Yes", "No"])
         extra_data['exceptions'] = st.text_input("Do you need to request any exceptions to TCIA's Open Access Policy?", value="No exceptions requested")
@@ -91,21 +134,28 @@ with st.form("proposal_form"):
             "What types of derived data are included in the dataset?*",
             options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"]
         )
-        extra_data['num_subjects'] = st.number_input("How many patients are included in your dataset?*", min_value=0)
-        extra_data['series_slides'] = st.text_input("Number of DICOM series or digitized pathology slides")
+        col1, col2 = st.columns(2)
+        with col1:
+            extra_data['num_subjects'] = st.number_input("How many patients are included in your dataset?*", min_value=0)
+        with col2:
+            extra_data['series_slides'] = st.text_input("Number of DICOM series or digitized pathology slides")
         extra_data['image_records'] = st.radio("Do you have records to indicate exactly which TCIA images analyzed?*", options=["Yes, I know exactly.", "No, I need assistance."])
         extra_data['file_formats'] = st.text_area("Specify the file format utilized for each type of data*")
         extra_data['citation_primary'] = st.text_area("Publication people should cite when utilizing this data")
 
     # Shared bottom fields
-    extra_data['disk_space'] = st.text_input("Approximate disk space required*")
+    col1, col2 = st.columns(2)
+    with col1:
+        extra_data['disk_space'] = st.text_input("Approximate disk space required*")
+    with col2:
+        time_constraints = st.text_input("Are there any time constraints associated with sharing your data set?*")
+
     extra_data['additional_publications'] = st.text_area("Any additional publications derived from these data?")
     extra_data['acknowledgments'] = st.text_area("Acknowledgments or funding statements*")
     extra_data['why_tcia'] = st.multiselect(
         "Why would you like to publish this dataset on TCIA?*",
         options=["To meet a funding agency's requirements", "To meet a journal's requirements", "To facilitate collaboration", "To facilitate a challenge competition", "Other"]
     )
-    time_constraints = st.text_input("Are there any time constraints associated with sharing your data set?*")
 
     submit_button = st.form_submit_button("Generate Proposal Documents")
 
