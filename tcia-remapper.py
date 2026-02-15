@@ -5,6 +5,7 @@ import re
 import os
 import sys
 import requests
+import base64
 from io import BytesIO
 import importlib.util
 
@@ -310,7 +311,7 @@ schema, permissible_values = load_resources()
 st.title("🗂️ TCIA Dataset Remapper")
 st.markdown("""
 Welcome to the TCIA Dataset Remapper! This tool helps you transform your clinical and imaging research data 
-into the standardized TCIA data model using a tiered conversational workflow.
+into the standardized TCIA data model.
 """)
 
 # Show current phase
@@ -848,9 +849,21 @@ if st.session_state.phase == 0:
 # ============================================================================
 elif st.session_state.phase == 1:
     st.header("Phase 1: Structure Mapping & Organization")
-    st.markdown("""
+
+    # Prepare script download link
+    try:
+        with open("tcia_data_inventory.py", "rb") as f:
+            script_data = f.read()
+        b64_script = base64.b64encode(script_data).decode()
+        script_link = f'<a href="data:file/python;base64,{b64_script}" download="tcia_data_inventory.py">try out this script</a>'
+    except Exception:
+        script_link = "try out this script"
+
+    st.markdown(f"""
     Upload your source data files and map your columns to the TCIA target entities.
-    """)
+
+    As a convenience, {script_link} to create some TSV inventories of your dataset directory that can be uploaded for harmonization in the following steps. To run it, you will need Python with pydicom and pandas installed. After executing the script you will be asked what directory you'd like to analyze.
+    """, unsafe_allow_html=True)
     
     # File upload
     uploaded_file = st.file_uploader(
