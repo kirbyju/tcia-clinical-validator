@@ -14,6 +14,7 @@ def load_mdf_model(model_path, props_path, terms_path):
 def transform_mdf_to_schema(model, props_defs, terms):
     schema = {}
     permissible_values = {}
+    relationships = model.get('Relationships', {})
     
     prop_definitions = props_defs.get('PropDefinitions', {})
     term_definitions = terms.get('Terms', {})
@@ -58,7 +59,7 @@ def transform_mdf_to_schema(model, props_defs, terms):
                 
         schema[node_name] = node_props
         
-    return schema, permissible_values
+    return schema, permissible_values, relationships
 
 def get_mdf_resources(resource_dir):
     model_path = os.path.join(resource_dir, 'model', 'nci_imaging_submission_model.yml')
@@ -68,4 +69,4 @@ def get_mdf_resources(resource_dir):
     if all(os.path.exists(p) for p in [model_path, props_path, terms_path]):
         model, props, terms = load_mdf_model(model_path, props_path, terms_path)
         return transform_mdf_to_schema(model, props, terms)
-    return None, None
+    return None, None, None

@@ -71,16 +71,16 @@ def load_json(filepath):
 
 @st.cache_data
 def load_mdf_data():
-    schema, mdf_pv = get_mdf_resources(RESOURCES_DIR)
+    schema, mdf_pv, relationships = get_mdf_resources(RESOURCES_DIR)
     legacy_pv = load_json(PERMISSIBLE_VALUES_FILE)
 
     final_pv = legacy_pv.copy()
     if mdf_pv:
         for k, v in mdf_pv.items():
             final_pv[k] = v
-    return schema, final_pv
+    return schema, final_pv, relationships
 
-schema, permissible_values = load_mdf_data()
+schema, permissible_values, relationships = load_mdf_data()
 AGREEMENT_TEMPLATE = os.path.join(RESOURCES_DIR, 'agreement_template.pdf')
 HELP_DESK_EMAIL = os.getenv("TCIA_HELP_DESK_EMAIL", "help@cancerimagingarchive.net")
 

@@ -28,6 +28,7 @@ validate_dataframe = remap_helper.validate_dataframe
 split_data_by_schema = remap_helper.split_data_by_schema
 write_metadata_tsv = remap_helper.write_metadata_tsv
 check_metadata_conflict = remap_helper.check_metadata_conflict
+check_missing_links = remap_helper.check_missing_links
 get_mdf_resources = mdf_parser.get_mdf_resources
 
 st.set_page_config(page_title="TCIA Dataset Remapper", layout="wide")
@@ -157,7 +158,7 @@ def lookup_orcid(orcid_id):
 @st.cache_data
 def load_resources():
     # Try loading from MDF first
-    schema, mdf_pv = get_mdf_resources(RESOURCES_DIR)
+    schema, mdf_pv, relationships = get_mdf_resources(RESOURCES_DIR)
     
     # Load legacy permissible values
     legacy_pv = load_json(PERMISSIBLE_VALUES_FILE)
@@ -168,12 +169,12 @@ def load_resources():
         if mdf_pv:
             for k, v in mdf_pv.items():
                 final_pv[k] = v
-        return schema, final_pv
+        return schema, final_pv, relationships
         
     # Fallback to legacy JSON files
     st.warning("⚠️ Using legacy schema files. MDF model files not found or invalid.")
     schema = load_json(SCHEMA_FILE)
-    return schema, legacy_pv
+    return schema, legacy_pv, {}
 
 def render_dynamic_form(entity_name, schema, permissible_values, current_data=None, excluded_fields=None, custom_labels=None, disabled=False, priority_fields=None):
     """
@@ -304,7 +305,7 @@ if not os.path.exists(st.session_state.output_dir):
     os.makedirs(st.session_state.output_dir)
 
 # Load schema and permissible values
-schema, permissible_values = load_resources()
+schema, permissible_values, relationships = load_resources()
 
 # Title and intro
 st.title("🗂️ TCIA Dataset Remapper")
@@ -786,11 +787,38 @@ if st.session_state.phase == 0:
         
         # --- Automatic Generation ---
         generated_files_map = {}
-        for entity_name, data in st.session_state.metadata.items():
-            if data:
-                filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
-                if filepath:
-                    generated_files_map[entity_name] = filepath
+
+        # Prepare metadata with relationships accounted for
+        metadata_to_write = {}
+        for entity_name, data_list in st.session_state.metadata.items():
+            if not data_list:
+                continue
+
+            # Create a copy to avoid modifying session state directly for writing
+            processed_data = [item.copy() for item in data_list]
+
+            # Check for relationships to other Phase 0 entities
+            for rel_name, rel_info in relationships.items():
+                for end in rel_info.get('Ends', []):
+                    if end['Src'] == entity_name and end['Dst'] in st.session_state.metadata:
+                        dst_meta = st.session_state.metadata[end['Dst']]
+                        if dst_meta:
+                            dst_lower = end['Dst'].lower()
+                            # Use short_name or first ID found as proxy for linkage
+                            link_val = dst_meta[0].get(f"{dst_lower}_short_name") or dst_meta[0].get(f"{dst_lower}_id")
+                            if link_val:
+                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].startswith(f"{dst_lower}.")), None)
+                                if linkage_prop:
+                                    for item in processed_data:
+                                        if not item.get(linkage_prop):
+                                            item[linkage_prop] = link_val
+
+            metadata_to_write[entity_name] = processed_data
+
+        for entity_name, data in metadata_to_write.items():
+            filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
+            if filepath:
+                generated_files_map[entity_name] = filepath
         st.session_state.generated_tsv_files = list(generated_files_map.values())
         # ----------------------------
 
@@ -910,8 +938,8 @@ elif st.session_state.phase == 1:
             
             # Get all target properties from schema
             all_properties = {}
-            excluded_entities = ['Program', 'Dataset', 'Investigator', 'Related_Work']
-            phase0_linkages = ['program.', 'dataset.', 'investigator.', 'related_work.']
+            excluded_entities = list(st.session_state.metadata.keys())
+            phase0_linkages = [f"{e.lower()}." for e in excluded_entities]
 
             for entity_name, properties in schema.items():
                 if entity_name in excluded_entities:
@@ -1015,8 +1043,33 @@ elif st.session_state.phase == 2:
         
         # Split data by schema
         split_data = split_data_by_schema(df, st.session_state.column_mapping, schema)
+
+        # Auto-populate linkages to Phase 0 entities based on relationships
+        for entity_name, entity_df in split_data.items():
+            for rel_name, rel_info in relationships.items():
+                for end in rel_info.get('Ends', []):
+                    if end['Src'] == entity_name and end['Dst'] in st.session_state.metadata:
+                        dst_meta = st.session_state.metadata[end['Dst']]
+                        if dst_meta:
+                            dst_lower = end['Dst'].lower()
+                            link_val = dst_meta[0].get(f"{dst_lower}_short_name") or dst_meta[0].get(f"{dst_lower}_id")
+                            if link_val:
+                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].startswith(f"{dst_lower}.")), None)
+                                if linkage_prop and linkage_prop not in entity_df.columns:
+                                    entity_df[linkage_prop] = link_val
         
         st.write(f"**Identified {len(split_data)} target entities from your data.**")
+
+        # Check for missing links
+        missing_links = check_missing_links(split_data, schema, relationships)
+        # Filter out links to Phase 0 entities as they are handled automatically
+        actual_missing = [l for l in missing_links if l['target_entity'] not in st.session_state.metadata]
+
+        if actual_missing:
+            st.warning("⚠️ Some uploaded entities are missing required linkages to each other:")
+            for l in actual_missing:
+                st.write(f"- Entity **{l['entity']}** is missing linkage to **{l['target_entity']}** (Property: `{l['property']}`)")
+            st.info("Please go back to Phase 1 and map a column to these linkage properties.")
         
         for entity_name, entity_df in split_data.items():
             with st.expander(f"📊 {entity_name} ({len(entity_df)} rows)", expanded=True):
