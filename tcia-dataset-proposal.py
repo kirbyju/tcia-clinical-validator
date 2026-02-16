@@ -15,19 +15,25 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
 import importlib.util
+import re
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
 # Constants & Configuration
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
 
-# Import MDF parser
+# Import MDF parser and helpers
 skill_dir = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill')
 mdf_parser_path = os.path.join(skill_dir, 'mdf_parser.py')
 spec_mdf = importlib.util.spec_from_file_location("mdf_parser", mdf_parser_path)
 mdf_parser = importlib.util.module_from_spec(spec_mdf)
 spec_mdf.loader.exec_module(mdf_parser)
 get_mdf_resources = mdf_parser.get_mdf_resources
+
+orcid_helper_path = os.path.join(skill_dir, 'orcid_helper.py')
+spec_orcid = importlib.util.spec_from_file_location("orcid_helper", orcid_helper_path)
+orcid_helper = importlib.util.module_from_spec(spec_orcid)
+spec_orcid.loader.exec_module(orcid_helper)
 
 PERMISSIBLE_VALUES_FILE = os.path.join(RESOURCES_DIR, 'permissible_values.json')
 
@@ -96,11 +102,16 @@ Welcome to the TCIA Dataset Proposal Form. Please fill out the information below
 publishing a new dataset or analysis results on The Cancer Imaging Archive.
 """)
 
+# Initialize session state for authors
+if 'validated_authors' not in st.session_state:
+    st.session_state.validated_authors = []
+
 # Initial choice
 proposal_type = st.radio(
     "What kind of dataset are you submitting?",
     options=["New Collection Proposal", "Analysis Results Proposal"],
-    help="Select 'New Collection' if you are submitting primary imaging data. Select 'Analysis Results' if you are submitting derived data (e.g., segmentations) from existing TCIA collections."
+    help="Select 'New Collection' if you are submitting primary imaging data. Select 'Analysis Results' if you are submitting derived data (e.g., segmentations) from existing TCIA collections.",
+    key="prop_type"
 )
 
 if proposal_type == "New Collection Proposal":
@@ -111,82 +122,166 @@ else:
 st.markdown("---")
 
 # Form Questions
-with st.form("proposal_form"):
-    st.subheader("Contact Information")
-    if SMTP_SERVER and SMTP_USER and SMTP_PASSWORD:
-        st.info("💡 **Note**: After completing this form, a copy of this proposal will be emailed to the Scientific, Technical, and Legal points of contact listed below.")
+st.subheader("Contact Information")
+if SMTP_SERVER and SMTP_USER and SMTP_PASSWORD:
+    st.info("💡 **Note**: After completing this form, a copy of this proposal will be emailed to the Scientific, Technical, and Legal points of contact listed below.")
 
+col1, col2 = st.columns(2)
+with col1:
+    sci_poc_name = st.text_input(LABELS["Scientific POC Name"], help="The person to contact about the proposal and data collection.", key="sci_poc_name")
+    tech_poc_name = st.text_input(LABELS["Technical POC Name"], help="The person involved in sending the data.", key="tech_poc_name")
+    legal_poc_name = st.text_input(LABELS["Legal POC Name"], help="Authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.", key="legal_poc_name")
+with col2:
+    sci_poc_email = st.text_input(LABELS["Scientific POC Email"], key="sci_poc_email")
+    tech_poc_email = st.text_input(LABELS["Technical POC Email"], key="tech_poc_email")
+    legal_poc_email = st.text_input(LABELS["Legal POC Email"], key="legal_poc_email")
+
+st.subheader("Dataset Publication Details")
+title = st.text_input(LABELS["Title"], help="Similar to a manuscript title.", key="title")
+nickname = st.text_input(LABELS["Nickname"], help="Must be < 30 characters, letters, numbers, and dashes only.", max_chars=30, key="nickname")
+
+# Authors Section
+st.write(f"**{LABELS['Authors']}**")
+authors_raw = st.text_area("Paste author names or ORCIDs (one per line or separated by semicolons)",
+                           help="Example: John Smith; 0000-0002-6543-3443; Jane Doe",
+                           key="authors_raw_input")
+
+if st.button("🔍 Process & Validate Authors"):
+    if authors_raw:
+        lines = re.split(r'[;\n]', authors_raw)
+        new_authors = []
+        for line in lines:
+            line = line.strip()
+            if not line: continue
+            parsed = orcid_helper.parse_author_input(line)
+
+            matches = []
+            with st.spinner(f"Searching ORCID for {line}..."):
+                if parsed['orcid']:
+                    profile = orcid_helper.get_orcid_profile(parsed['orcid'])
+                    if profile:
+                        matches = [profile]
+                else:
+                    matches = orcid_helper.get_profiles_for_name(parsed['first_name'], parsed['last_name'])
+
+            new_authors.append({
+                'parsed': parsed,
+                'matches': matches,
+                'selected_orcid': parsed['orcid'] if parsed['orcid'] else (matches[0]['orcid_id'] if len(matches) == 1 else None),
+                'manual_first': parsed['first_name'],
+                'manual_last': parsed['last_name'],
+                'manual_org': matches[0]['organization'] if len(matches) == 1 else '',
+                'manual_email': ''
+            })
+        st.session_state.validated_authors = new_authors
+    else:
+        st.warning("Please paste some author information first.")
+
+if st.session_state.validated_authors:
+    with st.expander("✅ Resolved Authors", expanded=True):
+        for i, auth in enumerate(st.session_state.validated_authors):
+            st.markdown(f"**Author {i+1}:** `{auth['parsed']['original_text']}`")
+            col_sel, col_det = st.columns([2, 2])
+
+            with col_sel:
+                if auth['matches']:
+                    match_options = ["(Keep as Name Only)"] + [f"{m['given_names']} {m['family_name']} - {m['organization']} ({m['orcid_id']})" for m in auth['matches']]
+
+                    default_idx = 0
+                    if auth['selected_orcid']:
+                        for idx, m in enumerate(auth['matches']):
+                            if m['orcid_id'] == auth['selected_orcid']:
+                                default_idx = idx + 1
+                                break
+
+                    sel = st.selectbox(f"ORCID Match for #{i+1}", options=match_options, index=default_idx, key=f"sel_auth_{i}")
+
+                    if sel == "(Keep as Name Only)":
+                        st.session_state.validated_authors[i]['selected_orcid'] = None
+                    else:
+                        match_id = re.search(r'\((0000-\d{4}-\d{4}-\d{3}[\dX])\)', sel).group(1)
+                        st.session_state.validated_authors[i]['selected_orcid'] = match_id
+                        # Update details if changed
+                        for m in auth['matches']:
+                            if m['orcid_id'] == match_id:
+                                st.session_state.validated_authors[i]['manual_first'] = m['given_names']
+                                st.session_state.validated_authors[i]['manual_last'] = m['family_name']
+                                st.session_state.validated_authors[i]['manual_org'] = m['organization']
+                else:
+                    st.info("No ORCID matches found.")
+
+            with col_det:
+                st.session_state.validated_authors[i]['manual_first'] = st.text_input("First Name", value=auth['manual_first'], key=f"f_name_{i}")
+                st.session_state.validated_authors[i]['manual_last'] = st.text_input("Last Name", value=auth['manual_last'], key=f"l_name_{i}")
+                st.session_state.validated_authors[i]['manual_org'] = st.text_input("Organization", value=auth['manual_org'], key=f"org_{i}")
+                st.session_state.validated_authors[i]['manual_email'] = st.text_input("Email (optional for proposal, required for Investigator TSV)", value=auth.get('manual_email', ''), key=f"email_{i}")
+            st.markdown("---")
+
+        if st.button("Clear Author List"):
+            st.session_state.validated_authors = []
+            st.rerun()
+
+abstract = st.text_area(LABELS["Abstract"], help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
+
+st.subheader("Data Collection Details")
+published_elsewhere = st.text_input(LABELS["Published Elsewhere"], help="If so, why publish on TCIA? Do you intend for the original to remain accessible?", key="published_elsewhere")
+
+# Adaptive fields
+extra_data = {}
+if proposal_type == "New Collection Proposal":
     col1, col2 = st.columns(2)
     with col1:
-        sci_poc_name = st.text_input(LABELS["Scientific POC Name"], help="The person to contact about the proposal and data collection.")
-        tech_poc_name = st.text_input(LABELS["Technical POC Name"], help="The person involved in sending the data.")
-        legal_poc_name = st.text_input(LABELS["Legal POC Name"], help="Authorized signatory who will sign the TCIA Data Submission Agreement. This should not be the PI or department chair.")
+        site_raw = permissible_values.get('primary_site', []) if permissible_values else []
+        site_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in site_raw])))
+        extra_data['disease_site'] = st.selectbox(LABELS["disease_site"], options=[""] + site_options, key="disease_site")
     with col2:
-        sci_poc_email = st.text_input(LABELS["Scientific POC Email"])
-        tech_poc_email = st.text_input(LABELS["Technical POC Email"])
-        legal_poc_email = st.text_input(LABELS["Legal POC Email"])
+        diag_raw = permissible_values.get('primary_diagnosis', []) if permissible_values else []
+        diag_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in diag_raw])))
+        extra_data['diagnosis'] = st.selectbox(LABELS["diagnosis"], options=[""] + diag_options, key="diagnosis")
 
-    st.subheader("Dataset Publication Details")
-    title = st.text_input(LABELS["Title"], help="Similar to a manuscript title.")
-    nickname = st.text_input(LABELS["Nickname"], help="Must be < 30 characters, letters, numbers, and dashes only.", max_chars=30)
-    authors = st.text_area(LABELS["Authors"], help="Format: (FAMILY, GIVEN). Please include OrcIDs (e.g. 0000-0000-0000-0000).")
-    abstract = st.text_area(LABELS["Abstract"], help="Focus on describing the dataset itself.", max_chars=1000)
-
-    st.subheader("Data Collection Details")
-    published_elsewhere = st.text_input(LABELS["Published Elsewhere"], help="If so, why publish on TCIA? Do you intend for the original to remain accessible?")
-
-    # Adaptive fields
-    extra_data = {}
-    if proposal_type == "New Collection Proposal":
-        col1, col2 = st.columns(2)
-        with col1:
-            site_raw = permissible_values.get('primary_site', []) if permissible_values else []
-            site_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in site_raw])))
-            extra_data['disease_site'] = st.selectbox(LABELS["disease_site"], options=[""] + site_options)
-        with col2:
-            diag_raw = permissible_values.get('primary_diagnosis', []) if permissible_values else []
-            diag_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in diag_raw])))
-            extra_data['diagnosis'] = st.selectbox(LABELS["diagnosis"], options=[""] + diag_options)
-
-        extra_data['image_types'] = st.multiselect(
-            LABELS["image_types"],
-            options=["MR", "CT", "PET", "PET-CT", "PET-MR", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"]
-        )
-        extra_data['supporting_data'] = st.multiselect(
-            LABELS["supporting_data"],
-            options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"]
-        )
-        extra_data['file_formats'] = st.text_area(LABELS["file_formats"])
-        extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_new"], min_value=0)
-        extra_data['modifications'] = st.text_area(LABELS["modifications"])
-        extra_data['faces'] = st.radio(LABELS["faces"], options=["Yes", "No"])
-        extra_data['exceptions'] = st.text_input(LABELS["exceptions"], value="No exceptions requested")
-    else: # Analysis Results
-        extra_data['collections_analyzed'] = st.text_input(LABELS["collections_analyzed"])
-        extra_data['derived_types'] = st.multiselect(
-            LABELS["derived_types"],
-            options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"]
-        )
-        extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_analysis"], min_value=0)
-        extra_data['image_records'] = st.radio(LABELS["image_records"], options=["Yes, I know exactly.", "No, I need assistance."])
-        extra_data['file_formats'] = st.text_area(LABELS["file_formats"])
-    # Shared bottom fields
-    col1, col2 = st.columns(2)
-    with col1:
-        extra_data['disk_space'] = st.text_input(LABELS["disk_space"])
-    with col2:
-        time_constraints = st.text_input(LABELS["Time Constraints"])
-
-    extra_data['descriptor_publication'] = st.text_area(LABELS["descriptor_publication"])
-    extra_data['additional_publications'] = st.text_area(LABELS["additional_publications"])
-    extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"])
-    extra_data['why_tcia'] = st.multiselect(
-        LABELS["why_tcia"],
-        options=["To meet a funding agency's requirements", "To meet a journal's requirements", "To facilitate collaboration", "To facilitate a challenge competition", "Other"]
+    extra_data['image_types'] = st.multiselect(
+        LABELS["image_types"],
+        options=["MR", "CT", "PET", "PET-CT", "PET-MR", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"],
+        key="image_types"
     )
+    extra_data['supporting_data'] = st.multiselect(
+        LABELS["supporting_data"],
+        options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"],
+        key="supporting_data"
+    )
+    extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats")
+    extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_new"], min_value=0, key="num_subjects_new")
+    extra_data['modifications'] = st.text_area(LABELS["modifications"], key="modifications")
+    extra_data['faces'] = st.radio(LABELS["faces"], options=["Yes", "No"], key="faces")
+    extra_data['exceptions'] = st.text_input(LABELS["exceptions"], value="No exceptions requested", key="exceptions")
+else: # Analysis Results
+    extra_data['collections_analyzed'] = st.text_input(LABELS["collections_analyzed"], key="collections_analyzed")
+    extra_data['derived_types'] = st.multiselect(
+        LABELS["derived_types"],
+        options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"],
+        key="derived_types"
+    )
+    extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_analysis"], min_value=0, key="num_subjects_analysis")
+    extra_data['image_records'] = st.radio(LABELS["image_records"], options=["Yes, I know exactly.", "No, I need assistance."], key="image_records")
+    extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats_analysis")
+# Shared bottom fields
+col1, col2 = st.columns(2)
+with col1:
+    extra_data['disk_space'] = st.text_input(LABELS["disk_space"], key="disk_space")
+with col2:
+    time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
-    button_label = "Submit" if (SMTP_SERVER and SMTP_USER and SMTP_PASSWORD) else "Generate Proposal Documents"
-    submit_button = st.form_submit_button(button_label)
+extra_data['descriptor_publication'] = st.text_area(LABELS["descriptor_publication"], key="descriptor_publication")
+extra_data['additional_publications'] = st.text_area(LABELS["additional_publications"], key="additional_publications")
+extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
+extra_data['why_tcia'] = st.multiselect(
+    LABELS["why_tcia"],
+    options=["To meet a funding agency's requirements", "To meet a journal's requirements", "To facilitate collaboration", "To facilitate a challenge competition", "Other"],
+    key="why_tcia"
+)
+
+button_label = "Submit" if (SMTP_SERVER and SMTP_USER and SMTP_PASSWORD) else "Generate Proposal Documents"
+submit_button = st.button(button_label, type="primary")
 
 # Processing after submission
 if submit_button:
@@ -200,7 +295,8 @@ if submit_button:
     if not legal_poc_email: missing_fields.append(LABELS["Legal POC Email"])
     if not title: missing_fields.append(LABELS["Title"])
     if not nickname: missing_fields.append(LABELS["Nickname"])
-    if not authors: missing_fields.append(LABELS["Authors"])
+    if not st.session_state.validated_authors:
+        missing_fields.append(LABELS["Authors"] + " (Please validate at least one author)")
     if not abstract: missing_fields.append(LABELS["Abstract"])
     if not published_elsewhere: missing_fields.append(LABELS["Published Elsewhere"])
 
@@ -220,6 +316,13 @@ if submit_button:
         for field in missing_fields:
             st.write(f"- {field}")
     else:
+        # Format authors for summary
+        authors_display = "; ".join([
+            f"{a['manual_last']}, {a['manual_first']} ({a['selected_orcid']})" if a['selected_orcid']
+            else f"{a['manual_last']}, {a['manual_first']}"
+            for a in st.session_state.validated_authors
+        ])
+
         # Prepare data for files
         all_responses = {
             "Proposal Type": proposal_type,
@@ -232,7 +335,7 @@ if submit_button:
             "Time Constraints": time_constraints,
             "Title": title,
             "Nickname": nickname,
-            "Authors": authors,
+            "Authors": authors_display,
             "Abstract": abstract,
             "Published Elsewhere": published_elsewhere
         }
@@ -242,6 +345,25 @@ if submit_button:
         tsv_buffer = io.StringIO()
         df = pd.DataFrame([all_responses])
         df.to_csv(tsv_buffer, sep='\t', index=False)
+
+        # Generate Investigators TSV
+        inv_data = []
+        for a in st.session_state.validated_authors:
+            inv_data.append({
+                'first_name': a['manual_first'],
+                'last_name': a['manual_last'],
+                'person_orcid': a.get('selected_orcid', ''),
+                'organization_name': a.get('manual_org', ''),
+                'email': a.get('manual_email', '')
+            })
+        inv_df = pd.DataFrame(inv_data)
+        # Ensure columns match Investigator schema (exclude ID fields)
+        inv_cols = [p['Property'] for p in schema.get('Investigator', []) if not p['Property'].endswith('_id') and '.' not in p['Property']]
+        for col in inv_cols:
+            if col not in inv_df.columns:
+                inv_df[col] = ""
+        inv_df = inv_df[inv_cols]
+        inv_tsv_content = inv_df.to_csv(sep='\t', index=False)
 
         # Generate DOCX
         doc = Document()
@@ -313,6 +435,7 @@ if submit_button:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             zip_file.writestr("proposal_summary.tsv", tsv_buffer.getvalue())
+            zip_file.writestr("investigators.tsv", inv_tsv_content)
             zip_file.writestr("proposal_summary.docx", docx_buffer.getvalue())
             if pdf_success:
                 zip_file.writestr("agreement_with_exhibit_a.pdf", pdf_buffer.getvalue())

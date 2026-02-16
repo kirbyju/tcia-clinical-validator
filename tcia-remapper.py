@@ -5,6 +5,7 @@ import re
 import os
 import sys
 import requests
+import zipfile
 from io import BytesIO
 import importlib.util
 
@@ -20,6 +21,11 @@ mdf_parser_path = os.path.join(skill_dir, 'mdf_parser.py')
 spec_mdf = importlib.util.spec_from_file_location("mdf_parser", mdf_parser_path)
 mdf_parser = importlib.util.module_from_spec(spec_mdf)
 spec_mdf.loader.exec_module(mdf_parser)
+
+orcid_helper_path = os.path.join(skill_dir, 'orcid_helper.py')
+spec_orcid = importlib.util.spec_from_file_location("orcid_helper", orcid_helper_path)
+orcid_helper = importlib.util.module_from_spec(spec_orcid)
+spec_orcid.loader.exec_module(orcid_helper)
 
 # Import functions
 load_json = remap_helper.load_json
@@ -121,38 +127,14 @@ def lookup_doi(doi):
     return None
 
 def lookup_orcid(orcid_id):
-    """Fetch metadata from ORCID API"""
-    if not orcid_id:
-        return None
-    try:
-        headers = {"Accept": "application/json"}
-        # Get personal details
-        url_p = f"https://pub.orcid.org/v3.0/{orcid_id}/personal-details"
-        res_p = requests.get(url_p, headers=headers, timeout=10)
-
-        # Get employments
-        url_e = f"https://pub.orcid.org/v3.0/{orcid_id}/employments"
-        res_e = requests.get(url_e, headers=headers, timeout=10)
-
-        metadata = {}
-
-        if res_p.status_code == 200:
-            data_p = res_p.json()
-            name = data_p.get('name', {})
-            metadata['first_name'] = name.get('given-names', {}).get('value', '')
-            metadata['last_name'] = name.get('family-name', {}).get('value', '')
-
-        if res_e.status_code == 200:
-            data_e = res_e.json()
-            affiliations = data_e.get('affiliation-group', [])
-            if affiliations:
-                # Get the first (likely most recent) employment
-                org = affiliations[0].get('summaries', [{}])[0].get('employment-summary', {}).get('organization', {})
-                metadata['organization'] = org.get('name', '')
-
-        return metadata if metadata else None
-    except Exception as e:
-        st.error(f"Error looking up ORCID: {e}")
+    """Fetch metadata from ORCID API using orcid_helper"""
+    profile = orcid_helper.get_orcid_profile(orcid_id)
+    if profile:
+        return {
+            'first_name': profile.get('given_names', ''),
+            'last_name': profile.get('family_name', ''),
+            'organization': profile.get('organization', '')
+        }
     return None
 
 @st.cache_data
@@ -384,11 +366,28 @@ if st.session_state.phase == 0:
         Importing a proposal will automatically fill in many of the fields for you, saving you time.
         """)
 
-        import_file = st.file_uploader("📥 Import TCIA Proposal Form (TSV)", type=['tsv'])
+        import_file = st.file_uploader("📥 Import TCIA Proposal Package (TSV or ZIP)", type=['tsv', 'zip'])
 
         if import_file:
             try:
-                import_df = pd.read_csv(import_file, sep='\t')
+                import_df = pd.DataFrame()
+                investigators_from_file = []
+
+                if import_file.name.endswith('.zip'):
+                    with zipfile.ZipFile(import_file) as z:
+                        # Load proposal summary
+                        if 'proposal_summary.tsv' in z.namelist():
+                            with z.open('proposal_summary.tsv') as f:
+                                import_df = pd.read_csv(f, sep='\t')
+
+                        # Load investigators if present
+                        if 'investigators.tsv' in z.namelist():
+                            with z.open('investigators.tsv') as f:
+                                inv_df = pd.read_csv(f, sep='\t')
+                                investigators_from_file = inv_df.to_dict('records')
+                else:
+                    import_df = pd.read_csv(import_file, sep='\t')
+
                 if not import_df.empty:
                     proposal_data = import_df.iloc[0].to_dict()
 
@@ -407,34 +406,38 @@ if st.session_state.phase == 0:
                     # Map Program (Default to Community)
                     st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
 
-                    # Map Investigators (Authors)
-                    authors_raw = str(proposal_data.get('Authors', ''))
-                    new_investigators = []
-                    author_entries = re.split(r'[;\n]', authors_raw)
-                    for entry in author_entries:
-                        entry = entry.strip()
-                        if not entry: continue
+                    # Map Investigators
+                    if investigators_from_file:
+                        st.session_state.metadata['Investigator'] = investigators_from_file
+                    else:
+                        # Fallback to parsing Authors field if investigators.tsv not present
+                        authors_raw = str(proposal_data.get('Authors', ''))
+                        new_investigators = []
+                        author_entries = re.split(r'[;\n]', authors_raw)
+                        for entry in author_entries:
+                            entry = entry.strip()
+                            if not entry: continue
 
-                        orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
-                        orcid = orcid_match.group(1) if orcid_match else ""
-                        name_part = re.sub(r'\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?', '', entry).strip()
-                        if name_part.startswith('(') and name_part.endswith(')'):
-                            name_part = name_part[1:-1].strip()
+                            orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
+                            orcid = orcid_match.group(1) if orcid_match else ""
+                            name_part = re.sub(r'\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?', '', entry).strip()
+                            if name_part.startswith('(') and name_part.endswith(')'):
+                                name_part = name_part[1:-1].strip()
 
-                        parts = name_part.split(',')
-                        last_name = parts[0].strip() if len(parts) > 0 else ""
-                        first_name = parts[1].strip() if len(parts) > 1 else ""
+                            parts = name_part.split(',')
+                            last_name = parts[0].strip() if len(parts) > 0 else ""
+                            first_name = parts[1].strip() if len(parts) > 1 else ""
 
-                        if first_name or last_name:
-                            new_investigators.append({
-                                'first_name': first_name,
-                                'last_name': last_name,
-                                'person_orcid': orcid,
-                                'email': '',
-                                'organization_name': ''
-                            })
-                    if new_investigators:
-                        st.session_state.metadata['Investigator'] = new_investigators
+                            if first_name or last_name:
+                                new_investigators.append({
+                                    'first_name': first_name,
+                                    'last_name': last_name,
+                                    'person_orcid': orcid,
+                                    'email': '',
+                                    'organization_name': ''
+                                })
+                        if new_investigators:
+                            st.session_state.metadata['Investigator'] = new_investigators
 
                     # Map Related Work
                     rel_works = []
