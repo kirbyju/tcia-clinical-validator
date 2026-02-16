@@ -153,6 +153,27 @@ def check_metadata_conflict(initial_metadata, df, column_mapping):
                             })
     return conflicts
 
+def check_missing_links(split_data, schema, relationships):
+    """
+    Checks if required linkages (based on relationships) are present in the split data.
+    """
+    missing_links = []
+    for entity_name, entity_df in split_data.items():
+        for rel_name, rel_info in relationships.items():
+            for end in rel_info.get('Ends', []):
+                if end['Src'] == entity_name:
+                    dst_lower = end['Dst'].lower()
+                    linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].startswith(f"{dst_lower}.")), None)
+                    if linkage_prop and linkage_prop not in entity_df.columns:
+                        # Only report if it's not a link to a Phase 0 entity (which we handle automatically)
+                        # Actually, better to report it and let the caller decide.
+                        missing_links.append({
+                            'entity': entity_name,
+                            'target_entity': end['Dst'],
+                            'property': linkage_prop
+                        })
+    return missing_links
+
 def main():
     print("TCIA Remap Helper loaded with metadata support.")
 
