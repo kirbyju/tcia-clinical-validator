@@ -11,12 +11,14 @@ from email.mime.text import MIMEText
 from email import encoders
 from docx import Document
 import PyPDF2
+import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
 import importlib.util
 import re
 import requests
+import uuid
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
@@ -161,7 +163,9 @@ with col2:
 
 st.subheader("Dataset Publication Details")
 title = st.text_input(LABELS["Title"], help="Similar to a manuscript title.", key="title")
-nickname = st.text_input(LABELS["Nickname"], help="Must be < 30 characters, letters, numbers, and dashes only.", max_chars=30, key="nickname")
+nickname = st.text_input(LABELS["Nickname"], help="Must be < 30 characters, alphanumeric and dashes only.", max_chars=30, key="nickname")
+if nickname and not re.match(r"^[a-zA-Z0-9-]+$", nickname):
+    st.error("⚠️ Invalid nickname. Only letters, numbers, and dashes are allowed.")
 
 # Authors Section
 st.write(f"**{LABELS['Authors']}**")
@@ -188,6 +192,7 @@ if st.button("🔍 Process & Validate Authors"):
                     matches = orcid_helper.get_profiles_for_name(parsed['first_name'], parsed['last_name'])
 
             new_authors.append({
+                'id': str(uuid.uuid4()),
                 'parsed': parsed,
                 'matches': matches,
                 'selected_orcid': parsed['orcid'] if parsed['orcid'] else (matches[0]['orcid_id'] if len(matches) == 1 else None),
@@ -202,8 +207,16 @@ if st.button("🔍 Process & Validate Authors"):
 
 if st.session_state.validated_authors:
     with st.expander("✅ Resolved Authors", expanded=True):
+        authors_to_delete = []
         for i, auth in enumerate(st.session_state.validated_authors):
-            st.markdown(f"**Author {i+1}:** `{auth['parsed']['original_text']}`")
+            auth_id = auth.get('id', str(i)) # Fallback for old sessions
+            col_header, col_delete = st.columns([6, 1])
+            with col_header:
+                st.markdown(f"**Author {i+1}:** `{auth['parsed']['original_text']}`")
+            with col_delete:
+                if st.button("🗑️", key=f"del_auth_btn_{auth_id}", help="Remove this author"):
+                    authors_to_delete.append(i)
+
             col_sel, col_det = st.columns([2, 2])
 
             with col_sel:
@@ -217,7 +230,7 @@ if st.session_state.validated_authors:
                                 default_idx = idx + 1
                                 break
 
-                    sel = st.selectbox(f"ORCID Match for #{i+1}", options=match_options, index=default_idx, key=f"sel_auth_{i}")
+                    sel = st.selectbox(f"ORCID Match for #{i+1}", options=match_options, index=default_idx, key=f"sel_auth_{auth_id}")
 
                     if sel == "(Keep as Name Only)":
                         st.session_state.validated_authors[i]['selected_orcid'] = None
@@ -230,15 +243,39 @@ if st.session_state.validated_authors:
                                 st.session_state.validated_authors[i]['manual_first'] = m['given_names']
                                 st.session_state.validated_authors[i]['manual_last'] = m['family_name']
                                 st.session_state.validated_authors[i]['manual_org'] = m['organization']
+                                # Update keys to refresh inputs
+                                st.session_state[f"f_name_{auth_id}"] = m['given_names']
+                                st.session_state[f"l_name_{auth_id}"] = m['family_name']
+                                st.session_state[f"org_{auth_id}"] = m['organization']
                 else:
                     st.info("No ORCID matches found.")
 
+                if st.button("🔄 Re-scan ORCID", key=f"rescan_{auth_id}", help="Search ORCID using the current First and Last names"):
+                    with st.spinner(f"Searching ORCID for {auth['manual_first']} {auth['manual_last']}..."):
+                        matches = orcid_helper.get_profiles_for_name(auth['manual_first'], auth['manual_last'])
+                        st.session_state.validated_authors[i]['matches'] = matches
+                        if matches and len(matches) == 1:
+                            st.session_state.validated_authors[i]['selected_orcid'] = matches[0]['orcid_id']
+                            st.session_state.validated_authors[i]['manual_org'] = matches[0]['organization']
+                            st.session_state[f"org_{auth_id}"] = matches[0]['organization']
+                        st.rerun()
+
             with col_det:
-                st.session_state.validated_authors[i]['manual_first'] = st.text_input("First Name", value=auth['manual_first'], key=f"f_name_{i}")
-                st.session_state.validated_authors[i]['manual_last'] = st.text_input("Last Name", value=auth['manual_last'], key=f"l_name_{i}")
-                st.session_state.validated_authors[i]['manual_org'] = st.text_input("Organization", value=auth['manual_org'], key=f"org_{i}")
-                st.session_state.validated_authors[i]['manual_email'] = st.text_input("Email (optional for proposal, required for Investigator TSV)", value=auth.get('manual_email', ''), key=f"email_{i}")
+                st.session_state.validated_authors[i]['manual_first'] = st.text_input("First Name", value=auth['manual_first'], key=f"f_name_{auth_id}")
+                st.session_state.validated_authors[i]['manual_last'] = st.text_input("Last Name", value=auth['manual_last'], key=f"l_name_{auth_id}")
+                st.session_state.validated_authors[i]['manual_org'] = st.text_input("Organization", value=auth['manual_org'], key=f"org_{auth_id}")
+                st.session_state.validated_authors[i]['manual_email'] = st.text_input("Email (optional for proposal, required for Investigator TSV)", value=auth.get('manual_email', ''), key=f"email_{auth_id}")
+
+            if auth.get('selected_orcid'):
+                st.success(f"✅ Linked to ORCID: {auth['selected_orcid']}")
+            else:
+                st.info("ℹ️ Not linked to ORCID (Manual Entry)")
             st.markdown("---")
+
+        if authors_to_delete:
+            for index in sorted(authors_to_delete, reverse=True):
+                st.session_state.validated_authors.pop(index)
+            st.rerun()
 
         if st.button("Clear Author List"):
             st.session_state.validated_authors = []
@@ -292,40 +329,8 @@ with col1:
 with col2:
     time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
-st.markdown(f"**{LABELS['descriptor_publication']}**")
-doi_desc = st.text_input("Enter DOI for Descriptor Publication (optional lookup)", key="doi_desc_input")
-if st.button("🔍 Lookup Descriptor DOI"):
-    if doi_desc:
-        with st.spinner("Looking up DOI..."):
-            result = lookup_doi(doi_desc)
-            if result:
-                st.session_state.descriptor_publication = result
-                st.success("Metadata found!")
-            else:
-                st.error("DOI not found.")
-
-extra_data['descriptor_publication'] = st.text_area("Descriptor Publication Details*", value=st.session_state.get('descriptor_publication', ''), key="descriptor_publication", help="Auto-populated if DOI lookup is used.")
-
-st.markdown(f"**{LABELS['additional_publications']}**")
-doi_add = st.text_area("Enter DOIs for Additional Publications (one per line, optional lookup)", key="doi_add_input")
-if st.button("🔍 Lookup Additional DOIs"):
-    if doi_add:
-        dois = [d.strip() for d in re.split(r'[,\n]', doi_add) if d.strip()]
-        results = []
-        with st.spinner(f"Looking up {len(dois)} DOIs..."):
-            for d in dois:
-                res = lookup_doi(d)
-                if res:
-                    results.append(res)
-                else:
-                    st.error(f"DOI not found: {d}")
-        if results:
-            current = st.session_state.get('additional_publications', '')
-            new_text = "\n\n".join(results)
-            st.session_state.additional_publications = (current + "\n\n" + new_text).strip()
-            st.success(f"✅ Added {len(results)} publication(s)!")
-
-extra_data['additional_publications'] = st.text_area("Additional Publication Details*", value=st.session_state.get('additional_publications', ''), key="additional_publications", help="Auto-populated if DOI lookup is used.")
+extra_data['descriptor_publication'] = st.text_area(LABELS['descriptor_publication'], key="descriptor_publication")
+extra_data['additional_publications'] = st.text_area(LABELS['additional_publications'], key="additional_publications")
 extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
 extra_data['why_tcia'] = st.multiselect(
     LABELS["why_tcia"],
@@ -347,7 +352,11 @@ if submit_button:
     if not legal_poc_name: missing_fields.append(LABELS["Legal POC Name"])
     if not legal_poc_email: missing_fields.append(LABELS["Legal POC Email"])
     if not title: missing_fields.append(LABELS["Title"])
-    if not nickname: missing_fields.append(LABELS["Nickname"])
+    if not nickname:
+        missing_fields.append(LABELS["Nickname"])
+    elif not re.match(r"^[a-zA-Z0-9-]+$", nickname):
+        st.error("⚠️ Invalid nickname. Please use only letters, numbers, and dashes.")
+        st.stop()
     if not st.session_state.validated_authors:
         missing_fields.append(LABELS["Authors"] + " (Please validate at least one author)")
     if not abstract: missing_fields.append(LABELS["Abstract"])
@@ -479,13 +488,20 @@ if submit_button:
             pdf_success = False
 
         # Create ZIP
+        today = datetime.date.today().isoformat()
+        pkg_name = f"{nickname}_proposal_package_{today}.zip"
+        summary_tsv_name = f"{nickname}_proposal_summary_{today}.tsv"
+        investigators_tsv_name = f"{nickname}_investigators_{today}.tsv"
+        docx_name = f"{nickname}_proposal_summary_{today}.docx"
+        pdf_name = f"{nickname}_agreement_updated_{today}.pdf"
+
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
-            zip_file.writestr("proposal_summary.tsv", tsv_buffer.getvalue())
-            zip_file.writestr("investigators.tsv", inv_tsv_content)
-            zip_file.writestr("proposal_summary.docx", docx_buffer.getvalue())
+            zip_file.writestr(summary_tsv_name, tsv_buffer.getvalue())
+            zip_file.writestr(investigators_tsv_name, inv_tsv_content)
+            zip_file.writestr(docx_name, docx_buffer.getvalue())
             if pdf_success:
-                zip_file.writestr("agreement_with_exhibit_a.pdf", pdf_buffer.getvalue())
+                zip_file.writestr(pdf_name, pdf_buffer.getvalue())
         zip_buffer.seek(0)
 
         # Store in session state for later use in email and to persist buttons
@@ -495,8 +511,10 @@ if submit_button:
             'pdf': pdf_buffer.getvalue() if pdf_success else None,
             'zip': zip_buffer.getvalue(),
             'title': title,
+            'nickname': nickname,
             'proposal_type': proposal_type,
-            'pocs': [sci_poc_email, tech_poc_email, legal_poc_email]
+            'pocs': [sci_poc_email, tech_poc_email, legal_poc_email],
+            'pkg_name': pkg_name
         }
         st.session_state['proposal_generated'] = True
 
@@ -516,7 +534,7 @@ if submit_button:
                 part = MIMEBase('application', 'zip')
                 part.set_payload(zip_buffer.getvalue())
                 encoders.encode_base64(part)
-                part.add_header('Content-Disposition', 'attachment; filename="proposal_package.zip"')
+                part.add_header('Content-Disposition', f'attachment; filename="{pkg_name}"')
                 msg.attach(part)
 
                 server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
@@ -538,13 +556,15 @@ if st.session_state.get('proposal_generated'):
         st.success("✅ Proposal documents generated successfully!")
 
         col1, col2, col3 = st.columns(3)
+        today = datetime.date.today().isoformat()
+        nickname_val = files.get('nickname', 'dataset')
         with col1:
-            st.download_button("Download TSV (Import to Remapper)", data=files['tsv'], file_name="proposal.tsv", mime="text/tab-separated-values")
+            st.download_button("Download TSV (Import to Remapper)", data=files['tsv'], file_name=f"{nickname_val}_proposal_{today}.tsv", mime="text/tab-separated-values")
         with col2:
-            st.download_button("Download DOCX Summary", data=files['docx'], file_name="proposal.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
+            st.download_button("Download DOCX Summary", data=files['docx'], file_name=f"{nickname_val}_proposal_summary_{today}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         with col3:
             if files['pdf']:
-                st.download_button("Download PDF Agreement", data=files['pdf'], file_name="agreement_updated.pdf", mime="application/pdf")
+                st.download_button("Download PDF Agreement", data=files['pdf'], file_name=f"{nickname_val}_agreement_updated_{today}.pdf", mime="application/pdf")
 
         st.info("💡 **Please download these documents and keep a copy for your records.**")
         st.info(f"💡 **Manual Submission**: Please email the generated files as attachments to **{HELP_DESK_EMAIL}**.")
