@@ -900,7 +900,9 @@ PropDefinitions:
     - Cites
     - IsVersionOf
     - IsDerivedFrom
-    Req: 'No'
+    - Describes
+    - IsDescribedBy
+    Req: 'Yes'
   resource_identifier:
     Desc: Repositories where other publications/datasets are stored, e.g. GDC, PDC
     Req: 'No'
@@ -1013,7 +1015,7 @@ PropDefinitions:
   title:
     Desc: The full title of the publication stated exactly as it appears on the published
       work.
-    Req: 'No'
+    Req: 'Yes'
     Term:
     - Code: '16078531'
       Definition: The title for a published printed or electronic article.

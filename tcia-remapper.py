@@ -282,6 +282,9 @@ if 'phase' not in st.session_state:
     st.session_state.inv_last = ""
     st.session_state.inv_org = ""
 
+if 'pending_dois' not in st.session_state:
+    st.session_state.pending_dois = []
+
 # Create output directory
 if not os.path.exists(st.session_state.output_dir):
     os.makedirs(st.session_state.output_dir)
@@ -734,37 +737,73 @@ if st.session_state.phase == 0:
         st.write("**Add New Related Work:**")
         
         doi_input_area = st.text_area("DOIs (Enter one or more, separated by commas or newlines)*", value=st.session_state.get('rw_doi', ''), help="Example: 10.1148/radiol.2021203534, 10.1038/s41597-020-00622-z")
-        if st.button("🔍 Lookup & Add DOIs"):
+        if st.button("🔍 Lookup DOIs"):
             if doi_input_area:
                 dois = [d.strip() for d in re.split(r'[,\n]', doi_input_area) if d.strip()]
-                added_count = 0
+                new_pending = []
                 for d in dois:
                     with st.spinner(f"Looking up {d}..."):
                         doi_metadata = lookup_doi(d)
                         if doi_metadata:
-                            # Check if already added
+                            # Check if already added or already pending
                             exists = any(work.get('DOI') == d for work in st.session_state.metadata['Related_Work'])
-                            if not exists:
-                                # Relationship Type is optional, DOI, Title, and Publication Type are required
+                            pending_exists = any(p.get('DOI') == d for p in st.session_state.pending_dois)
+                            if not exists and not pending_exists:
                                 work_data = {
                                     'DOI': d,
                                     'title': doi_metadata['title'],
                                     'authorship': doi_metadata['authors'],
-                                    'publication_type': 'Journal Article', # Default
                                     'year_of_publication': doi_metadata.get('year', ''),
                                     'journal_citation': doi_metadata.get('journal', '')
                                 }
-                                st.session_state.metadata['Related_Work'].append(work_data)
-                                added_count += 1
+                                new_pending.append(work_data)
                         else:
                             st.error(f"DOI not found: {d}")
 
-                if added_count > 0:
-                    st.success(f"✅ Added {added_count} related work(s)!")
-                    st.session_state.rw_doi = "" # Clear
+                if new_pending:
+                    st.session_state.pending_dois.extend(new_pending)
+                    st.session_state.rw_doi = "" # Clear input
                     st.rerun()
             else:
                 st.warning("Please enter at least one DOI.")
+
+        if st.session_state.pending_dois:
+            st.write("### 🆕 New Related Work(s) Found")
+            st.info("Please specify the Publication Type and Relationship Type for each item below.")
+
+            dois_to_remove = []
+
+            def get_options(prop_name):
+                opts = permissible_values.get(prop_name, [])
+                if opts and isinstance(opts[0], dict):
+                    return [f"{o['value']}" for o in opts]
+                return opts
+
+            for i, pending in enumerate(st.session_state.pending_dois):
+                with st.container(border=True):
+                    st.markdown(f"**DOI:** `{pending['DOI']}`")
+                    st.markdown(f"**Title:** {pending['title']}")
+
+                    col1, col2, col3 = st.columns([2, 2, 1])
+                    with col1:
+                        p_type_opts = get_options('publication_type')
+                        p_type = st.selectbox("Publication Type", options=[""] + p_type_opts, key=f"p_type_{i}")
+                    with col2:
+                        r_type_opts = get_options('relationship_type')
+                        r_type = st.selectbox("Relationship Type", options=[""] + r_type_opts, key=f"r_type_{i}")
+                    with col3:
+                        st.write(" ") # alignment
+                        st.write(" ")
+                        if st.button("➕ Add", key=f"add_p_{i}"):
+                            if p_type and r_type:
+                                pending['publication_type'] = p_type
+                                pending['relationship_type'] = r_type
+                                st.session_state.metadata['Related_Work'].append(pending)
+                                # Remove from pending list immediately before rerun
+                                st.session_state.pending_dois.pop(i)
+                                st.rerun()
+                            else:
+                                st.error("Required.")
 
         st.markdown("---")
         st.write("**Add Related Work Manually:**")
@@ -784,8 +823,8 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save & Next")
             if submitted:
-                # Relationship Type is optional, but DOI, Title, and Publication Type are required
-                if work_data.get('DOI') and work_data.get('title') and work_data.get('publication_type'):
+                # Both Publication Type and Relationship Type are now required
+                if work_data.get('DOI') and work_data.get('title') and work_data.get('publication_type') and work_data.get('relationship_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
 
                     # Clear session state for next entry
@@ -797,7 +836,7 @@ if st.session_state.phase == 0:
                     st.session_state.phase0_step = 'Review'
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields (DOI, Title, Authorship, Publication Type).")
+                    st.error("Please fill in all required fields (DOI, Title, Authorship, Publication Type, Relationship Type).")
     
     # TAB 6: Review & Generate
     elif st.session_state.phase0_step == "Review":
