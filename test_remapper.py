@@ -41,10 +41,7 @@ def test_phase0_metadata():
         'dataset_long_name': 'Test Cancer Imaging Dataset',
         'dataset_short_name': 'TestCID',
         'dataset_description': 'A test dataset for validation',
-        'dataset_abstract': 'Test abstract',
-        'number_of_participants': 100,
-        # Note: 'data_has_been_de-identified' contains a hyphen to match TCIA schema specification
-        'data_has_been_de-identified': 'Yes'
+        'dataset_abstract': 'Test abstract'
     }
     
     investigator_metadata = [
@@ -59,7 +56,7 @@ def test_phase0_metadata():
     related_work_metadata = [
         {
             'DOI': '10.1234/test',
-            'publication_title': 'Test Publication',
+            'title': 'Test Publication',
             'authorship': 'Doe et al.',
             'publication_type': 'Journal Article'
         }
