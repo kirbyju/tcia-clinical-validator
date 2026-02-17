@@ -16,6 +16,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
 import importlib.util
 import re
+import requests
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
@@ -55,8 +56,6 @@ LABELS = {
     "image_types": "Which image types are included in the data set?*",
     "supporting_data": "Which kinds of supporting data are included in the data set?*",
     "file_formats": "Specify the file format utilized for each type of data*",
-    "num_subjects_new": "How many subjects are in your data set?*",
-    "num_subjects_analysis": "How many patients are included in your dataset?*",
     "modifications": "Describe any steps taken to modify data prior to submission*",
     "faces": "Does your data contain any images of patient faces?*",
     "exceptions": "Do you need to request any exceptions to TCIA's Open Access Policy?*",
@@ -74,6 +73,30 @@ LABELS = {
 def load_json(filepath):
     with open(filepath, 'r') as f:
         return json.load(f)
+
+def lookup_doi(doi):
+    """Fetch metadata from Crossref API"""
+    if not doi:
+        return None
+    try:
+        url = f"https://api.crossref.org/works/{doi}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()['message']
+            title = data.get('title', [''])[0]
+            authors_list = data.get('author', [])
+            authors = ", ".join([f"{a.get('family', '')} {a.get('given', '')}".strip() for a in authors_list])
+            if len(authors_list) > 3:
+                authors = f"{authors_list[0].get('family', '')} et al."
+            year = ""
+            issued = data.get('issued', {}).get('date-parts', [[None]])[0][0]
+            if issued:
+                year = str(issued)
+            journal = data.get('container-title', [''])[0]
+            return f"{authors} ({year}). {title}. {journal}. DOI: {doi}"
+    except:
+        pass
+    return None
 
 @st.cache_data
 def load_mdf_data():
@@ -250,7 +273,6 @@ if proposal_type == "New Collection Proposal":
         key="supporting_data"
     )
     extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats")
-    extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_new"], min_value=0, key="num_subjects_new")
     extra_data['modifications'] = st.text_area(LABELS["modifications"], key="modifications")
     extra_data['faces'] = st.radio(LABELS["faces"], options=["Yes", "No"], key="faces")
     extra_data['exceptions'] = st.text_input(LABELS["exceptions"], value="No exceptions requested", key="exceptions")
@@ -261,7 +283,6 @@ else: # Analysis Results
         options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"],
         key="derived_types"
     )
-    extra_data['num_subjects'] = st.number_input(LABELS["num_subjects_analysis"], min_value=0, key="num_subjects_analysis")
     extra_data['image_records'] = st.radio(LABELS["image_records"], options=["Yes, I know exactly.", "No, I need assistance."], key="image_records")
     extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats_analysis")
 # Shared bottom fields
@@ -271,8 +292,40 @@ with col1:
 with col2:
     time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
-extra_data['descriptor_publication'] = st.text_area(LABELS["descriptor_publication"], key="descriptor_publication")
-extra_data['additional_publications'] = st.text_area(LABELS["additional_publications"], key="additional_publications")
+st.markdown(f"**{LABELS['descriptor_publication']}**")
+doi_desc = st.text_input("Enter DOI for Descriptor Publication (optional lookup)", key="doi_desc_input")
+if st.button("🔍 Lookup Descriptor DOI"):
+    if doi_desc:
+        with st.spinner("Looking up DOI..."):
+            result = lookup_doi(doi_desc)
+            if result:
+                st.session_state.descriptor_publication = result
+                st.success("Metadata found!")
+            else:
+                st.error("DOI not found.")
+
+extra_data['descriptor_publication'] = st.text_area("Descriptor Publication Details*", value=st.session_state.get('descriptor_publication', ''), key="descriptor_publication", help="Auto-populated if DOI lookup is used.")
+
+st.markdown(f"**{LABELS['additional_publications']}**")
+doi_add = st.text_area("Enter DOIs for Additional Publications (one per line, optional lookup)", key="doi_add_input")
+if st.button("🔍 Lookup Additional DOIs"):
+    if doi_add:
+        dois = [d.strip() for d in re.split(r'[,\n]', doi_add) if d.strip()]
+        results = []
+        with st.spinner(f"Looking up {len(dois)} DOIs..."):
+            for d in dois:
+                res = lookup_doi(d)
+                if res:
+                    results.append(res)
+                else:
+                    st.error(f"DOI not found: {d}")
+        if results:
+            current = st.session_state.get('additional_publications', '')
+            new_text = "\n\n".join(results)
+            st.session_state.additional_publications = (current + "\n\n" + new_text).strip()
+            st.success(f"✅ Added {len(results)} publication(s)!")
+
+extra_data['additional_publications'] = st.text_area("Additional Publication Details*", value=st.session_state.get('additional_publications', ''), key="additional_publications", help="Auto-populated if DOI lookup is used.")
 extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
 extra_data['why_tcia'] = st.multiselect(
     LABELS["why_tcia"],
@@ -302,11 +355,7 @@ if submit_button:
 
     for key, val in extra_data.items():
         if not val:
-            # Special case for num_subjects
-            if key == "num_subjects":
-                label = LABELS["num_subjects_new"] if proposal_type == "New Collection Proposal" else LABELS["num_subjects_analysis"]
-            else:
-                label = LABELS.get(key, key.replace('_', ' ').title())
+            label = LABELS.get(key, key.replace('_', ' ').title())
             missing_fields.append(label)
 
     if not time_constraints: missing_fields.append(LABELS["Time Constraints"])
@@ -370,8 +419,6 @@ if submit_button:
         doc.add_heading(f"TCIA Dataset Proposal: {title}", 0)
         for key, value in all_responses.items():
             label = LABELS.get(key, key)
-            if key == "num_subjects":
-                label = LABELS["num_subjects_new"] if proposal_type == "New Collection Proposal" else LABELS["num_subjects_analysis"]
 
             doc.add_paragraph(f"{label}:", style='Heading 2')
             doc.add_paragraph(str(value))

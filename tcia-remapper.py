@@ -395,8 +395,7 @@ if st.session_state.phase == 0:
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
-                        'dataset_abstract': proposal_data.get('Abstract', ''),
-                        'number_of_participants': proposal_data.get('num_subjects', 0)
+                        'dataset_abstract': proposal_data.get('Abstract', '')
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -445,7 +444,7 @@ if st.session_state.phase == 0:
                         val = proposal_data.get(k)
                         if val and str(val).strip():
                             rel_works.append({
-                                'publication_title': str(val).strip(),
+                                'title': str(val).strip(),
                                 'publication_type': 'Journal Article',
                                 'authorship': '',
                                 'DOI': ''
@@ -528,7 +527,7 @@ if st.session_state.phase == 0:
                 permissible_values,
                 current_data=current_ds_data,
                 excluded_fields=['dataset_description', 'dataset_abstract'],
-                priority_fields=['dataset_long_name', 'dataset_short_name', 'number_of_participants']
+                priority_fields=['dataset_long_name', 'dataset_short_name']
             )
             
             submitted = st.form_submit_button("Save & Next")
@@ -725,7 +724,7 @@ if st.session_state.phase == 0:
             for idx, work in enumerate(st.session_state.metadata['Related_Work']):
                 col1, col2 = st.columns([6, 1])
                 with col1:
-                    st.write(f"{idx+1}. {work.get('publication_title', '')} - DOI: {work.get('DOI', '')}")
+                    st.write(f"{idx+1}. {work.get('title', '')} - DOI: {work.get('DOI', '')}")
                 with col2:
                     if st.button("🗑️", key=f"del_work_{idx}"):
                         st.session_state.metadata['Related_Work'].pop(idx)
@@ -734,28 +733,45 @@ if st.session_state.phase == 0:
         st.markdown("---")
         st.write("**Add New Related Work:**")
         
-        col_doi, col_lookup = st.columns([3, 1])
-        with col_doi:
-            doi_input = st.text_input("DOI (Required)*", value=st.session_state.get('rw_doi', ''))
-        with col_lookup:
-            st.write(" ") # alignment
-            st.write(" ")
-            if st.button("🔍 Lookup DOI"):
-                doi_metadata = lookup_doi(doi_input)
-                if doi_metadata:
-                    st.session_state.rw_doi = doi_input
-                    st.session_state.rw_title = doi_metadata['title']
-                    st.session_state.rw_authors = doi_metadata['authors']
-                    # We could also use year and journal if we had fields for them
-                    st.success("Metadata found!")
-                    st.rerun()
-                else:
-                    st.error("DOI not found.")
+        doi_input_area = st.text_area("DOIs (Enter one or more, separated by commas or newlines)*", value=st.session_state.get('rw_doi', ''), help="Example: 10.1148/radiol.2021203534, 10.1038/s41597-020-00622-z")
+        if st.button("🔍 Lookup & Add DOIs"):
+            if doi_input_area:
+                dois = [d.strip() for d in re.split(r'[,\n]', doi_input_area) if d.strip()]
+                added_count = 0
+                for d in dois:
+                    with st.spinner(f"Looking up {d}..."):
+                        doi_metadata = lookup_doi(d)
+                        if doi_metadata:
+                            # Check if already added
+                            exists = any(work.get('DOI') == d for work in st.session_state.metadata['Related_Work'])
+                            if not exists:
+                                # Relationship Type is optional, DOI, Title, and Publication Type are required
+                                work_data = {
+                                    'DOI': d,
+                                    'title': doi_metadata['title'],
+                                    'authorship': doi_metadata['authors'],
+                                    'publication_type': 'Journal Article', # Default
+                                    'year_of_publication': doi_metadata.get('year', ''),
+                                    'journal_citation': doi_metadata.get('journal', '')
+                                }
+                                st.session_state.metadata['Related_Work'].append(work_data)
+                                added_count += 1
+                        else:
+                            st.error(f"DOI not found: {d}")
 
+                if added_count > 0:
+                    st.success(f"✅ Added {added_count} related work(s)!")
+                    st.session_state.rw_doi = "" # Clear
+                    st.rerun()
+            else:
+                st.warning("Please enter at least one DOI.")
+
+        st.markdown("---")
+        st.write("**Add Related Work Manually:**")
         with st.form("related_work_form"):
             rw_prepopulate = {
-                'DOI': st.session_state.get('rw_doi', doi_input),
-                'publication_title': st.session_state.get('rw_title', ''),
+                'DOI': '',
+                'title': st.session_state.get('rw_title', ''),
                 'authorship': st.session_state.get('rw_authors', '')
             }
             
@@ -768,8 +784,8 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save & Next")
             if submitted:
-                # Relationship Type is optional, but DOI, Title, Authorship, and Publication Type are required in schema
-                if work_data.get('DOI') and work_data.get('publication_title') and work_data.get('authorship') and work_data.get('publication_type'):
+                # Relationship Type is optional, but DOI, Title, and Publication Type are required
+                if work_data.get('DOI') and work_data.get('title') and work_data.get('publication_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
 
                     # Clear session state for next entry
