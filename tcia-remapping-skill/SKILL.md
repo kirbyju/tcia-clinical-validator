@@ -18,11 +18,13 @@ To minimize user effort, the skill follows a tiered approach:
 ### Phase 0: Dataset-Level Metadata Collection
 Before remapping any source files, collect high-level metadata for the submission.
 
-1. **Sequential Interview**: Collect information one entity at a time in the following order:
-   - **Program**: Focus on `program_name` and `program_short_name` (Required). **Steering**: Most users should be directed to use "Community" as their program unless they are part of a major NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank). Ask for optional fields like `institution_name` and descriptions if available.
-   - **Dataset**: Focus on `dataset_long_name`, `dataset_short_name`, `dataset_description`, and `dataset_abstract` (Required).
-   - **Investigator**: Collect details for one or more investigators. Ask for `first_name`, `last_name`, `email`, and `organization_name` (Required). Support multiple entries by encouraging a list format.
-   - **Related_Work**: Collect `DOI`, `title`, and `publication_type` (Required). Support multiple entries.
+1. **Sequential Interview**: Collect information in the following order:
+   - **Start (Import)**: Offer the user the option to import an existing TCIA Proposal package (ZIP or TSV). If provided, use the `import_proposal` logic to pre-populate all subsequent fields.
+   - **Program**: Focus on `program_name` and `program_short_name` (Required). **Steering**: Most users should be directed to use "Community" as their program unless they are part of a major NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
+   - **Dataset**: Focus on `dataset_long_name` and `dataset_short_name` (Required).
+   - **CICADAS**: Guide the user through the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to generate a high-quality `dataset_abstract` and `dataset_description`. (See `tcia-cicadas-skill` for detailed instructions).
+   - **Investigator**: Collect details for one or more investigators. Ask for `first_name`, `last_name`, `email`, and `organization_name` (Required). Support multiple entries and ORCID lookups.
+   - **Related_Work**: Collect `DOI`, `title`, `publication_type`, and `relationship_type` (Required). Support multiple entries and DOI lookups.
 
 2. **Handling Missing Info**: If a required field is missing, prompt the user. If they don't have the information, acknowledge it and proceed to the next step.
 
@@ -56,6 +58,9 @@ User: "Looks good, proceed to values."
 Claude: "Great. In 'primary_site', I've auto-matched 90% of your values. I have 3 values that need your attention: 'Lung, NOS', 'Chest wall', and 'Unknown'. Recommendations: [List]. How should we handle these?"
 
 ## Resources
-- `resources/schema.json`: Complete property definitions.
-- `resources/permissible_values.json`: Valid values with ontology metadata (NCIt, UBERON).
-- `remap_helper.py`: Utility script for fuzzy matching and data splitting.
+- `resources/model/`: NCI Imaging Submission Model files (MDF YAML format).
+- `resources/schema.json`: Legacy property definitions (fallback).
+- `resources/permissible_values.json`: Legacy valid values with ontology metadata (fallback).
+- `mdf_parser.py`: Parser for the MDF model files.
+- `remap_helper.py`: Utility script for fuzzy matching, data splitting, and conflict checking.
+- `orcid_helper.py`: Utility for ORCID profile lookups and author parsing.
