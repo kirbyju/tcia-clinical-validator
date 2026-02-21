@@ -37,7 +37,7 @@ check_metadata_conflict = remap_helper.check_metadata_conflict
 check_missing_links = remap_helper.check_missing_links
 get_mdf_resources = mdf_parser.get_mdf_resources
 
-st.set_page_config(page_title="TCIA Dataset Remapper", layout="wide")
+st.set_page_config(page_title="NCI Imaging Submission Validator", layout="wide")
 
 # Load resources
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
@@ -294,14 +294,13 @@ if not os.path.exists(st.session_state.output_dir):
 schema, permissible_values, relationships = load_resources()
 
 # Title and intro
-st.title("🗂️ TCIA Dataset Remapper")
+st.title("🗂️ NCI Imaging Submission Validator")
 st.markdown("""
-Welcome to the TCIA Dataset Remapper! This tool helps you transform your clinical and imaging research data 
-into the standardized TCIA data model using a tiered conversational workflow.
+Welcome to the NCI Imaging Submission Validator. This tool helps you transform and validate your dataset to align with [NCI's Imaging Submission Model](https://github.com/CBIIT/nci-imaging-submission-model).
 """)
 
 # Show current phase
-phase_names = ["Phase 0: Dataset-Level Metadata", "Phase 1: Structure Mapping", "Phase 2: Value Standardization"]
+phase_names = ["Phase 0: Summary Metadata", "Phase 1: Column Headers", "Phase 2: Permissible Values"]
 st.sidebar.title("Progress")
 st.sidebar.write(f"**Current Phase:** {phase_names[st.session_state.phase]}")
 
@@ -311,21 +310,21 @@ if st.sidebar.button("🔄 Reset App"):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Navigation")
-if st.sidebar.button("📋 Phase 0: Metadata"):
+if st.sidebar.button("📋 Phase 0: Summary Metadata"):
     st.session_state.phase = 0
     st.rerun()
-if st.sidebar.button("🔗 Phase 1: Structure"):
+if st.sidebar.button("🔗 Phase 1: Column Headers"):
     st.session_state.phase = 1
     st.rerun()
-if st.sidebar.button("✅ Phase 2: Values"):
+if st.sidebar.button("✅ Phase 2: Permissible Values"):
     st.session_state.phase = 2
     st.rerun()
 
 # ============================================================================
-# PHASE 0: DATASET-LEVEL METADATA COLLECTION
+# PHASE 0: SUMMARY METADATA COLLECTION
 # ============================================================================
 if st.session_state.phase == 0:
-    st.header("Phase 0: Dataset-Level Metadata Collection")
+    st.header("Phase 0: Summary Metadata")
     st.markdown("""
     Before remapping your source files, let's collect high-level metadata for your submission.
     We'll go through this one entity at a time: **Start → Program → Dataset → Investigator → Related Work**
@@ -366,11 +365,11 @@ if st.session_state.phase == 0:
     if st.session_state.phase0_step == "Start":
         st.subheader("Welcome to Phase 0")
         st.markdown("""
-        Before we begin, would you like to import your TCIA Dataset Proposal Form?
+        Before we begin, would you like to import your Dataset Proposal Form?
         Importing a proposal will automatically fill in many of the fields for you, saving you time.
         """)
 
-        import_file = st.file_uploader("📥 Import TCIA Proposal Package (TSV or ZIP)", type=['tsv', 'zip'])
+        import_file = st.file_uploader("📥 Import Proposal Package (TSV or ZIP)", type=['tsv', 'zip'])
 
         if import_file:
             try:
@@ -973,12 +972,12 @@ if st.session_state.phase == 0:
             st.rerun()
 
 # ============================================================================
-# PHASE 1: STRUCTURE MAPPING & ORGANIZATION
+# PHASE 1: COLUMN HEADERS
 # ============================================================================
 elif st.session_state.phase == 1:
-    st.header("Phase 1: Structure Mapping & Organization")
+    st.header("Phase 1: Column Headers")
     st.markdown("""
-    Upload your source data files and map your columns to the TCIA target entities.
+    Upload your source data files and map your columns to the target entities.
     """)
     
     # File upload
@@ -1035,7 +1034,7 @@ elif st.session_state.phase == 1:
             
             st.markdown("---")
             st.subheader("Column Mapping")
-            st.markdown("Map your source columns to the TCIA target properties.")
+            st.markdown("Map your source columns to the target properties.")
             
             # Get all target properties from schema
             all_properties = {}
@@ -1127,12 +1126,12 @@ elif st.session_state.phase == 1:
         st.info("👆 Please upload a file to begin structure mapping.")
 
 # ============================================================================
-# PHASE 2: VALUE STANDARDIZATION
+# PHASE 2: PERMISSIBLE VALUES
 # ============================================================================
 elif st.session_state.phase == 2:
-    st.header("Phase 2: Value Standardization")
+    st.header("Phase 2: Permissible Values")
     st.markdown("""
-    Now let's standardize your data values to match TCIA permissible values using ontology-enhanced matching.
+    Now let's standardize your data values to match permissible values using ontology-enhanced matching.
     """)
     
     if st.session_state.uploaded_data is None:
@@ -1251,9 +1250,9 @@ elif st.session_state.phase == 2:
                         )
         
         st.markdown("---")
-        st.success("🎉 Remapping complete! All TSV files have been generated.")
+        st.success("🎉 Validation and transformation complete! All TSV files have been generated.")
         
-        if st.button("🔄 Start New Remapping"):
+        if st.button("🔄 Start New Validation"):
             reset_app()
             st.rerun()
 
@@ -1261,7 +1260,7 @@ elif st.session_state.phase == 2:
 st.markdown("---")
 st.markdown("""
 <div style='text-align: center; color: gray; font-size: 0.9em;'>
-TCIA Dataset Remapper | Following TCIA Imaging Submission Data Model<br>
+NCI Imaging Submission Validator | Following <a href="https://github.com/CBIIT/nci-imaging-submission-model" style="color: gray;">NCI's Imaging Submission Model</a><br>
 Leveraging NCIt, UBERON, and SNOMED ontologies for standardization
 </div>
 """, unsafe_allow_html=True)
