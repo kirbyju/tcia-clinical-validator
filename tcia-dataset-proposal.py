@@ -22,6 +22,8 @@ import uuid
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
+st.image("https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png", width=300)
+
 # Constants & Configuration
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
 
