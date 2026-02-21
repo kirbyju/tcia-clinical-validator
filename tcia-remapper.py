@@ -281,6 +281,7 @@ if 'phase' not in st.session_state:
     st.session_state.inv_first = ""
     st.session_state.inv_last = ""
     st.session_state.inv_org = ""
+    st.session_state.raw_authors = ""
 
 if 'pending_dois' not in st.session_state:
     st.session_state.pending_dois = []
@@ -378,14 +379,16 @@ if st.session_state.phase == 0:
 
                 if import_file.name.endswith('.zip'):
                     with zipfile.ZipFile(import_file) as z:
-                        # Load proposal summary
-                        if 'proposal_summary.tsv' in z.namelist():
-                            with z.open('proposal_summary.tsv') as f:
+                        # Load proposal summary (look for file with 'proposal_summary' in name)
+                        summary_file = next((name for name in z.namelist() if 'proposal_summary' in name and name.endswith('.tsv')), None)
+                        if summary_file:
+                            with z.open(summary_file) as f:
                                 import_df = pd.read_csv(f, sep='\t')
 
                         # Load investigators if present
-                        if 'investigators.tsv' in z.namelist():
-                            with z.open('investigators.tsv') as f:
+                        inv_file = next((name for name in z.namelist() if 'investigators' in name and name.endswith('.tsv')), None)
+                        if inv_file:
+                            with z.open(inv_file) as f:
                                 inv_df = pd.read_csv(f, sep='\t')
                                 investigators_from_file = inv_df.to_dict('records')
                 else:
@@ -408,38 +411,12 @@ if st.session_state.phase == 0:
                     # Map Program (Default to Community)
                     st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
 
-                    # Map Investigators
+                    # Store raw authors for parsing in the Investigator step
+                    st.session_state.raw_authors = str(proposal_data.get('Authors', ''))
+
+                    # Map Investigators if present in ZIP
                     if investigators_from_file:
                         st.session_state.metadata['Investigator'] = investigators_from_file
-                    else:
-                        # Fallback to parsing Authors field if investigators.tsv not present
-                        authors_raw = str(proposal_data.get('Authors', ''))
-                        new_investigators = []
-                        author_entries = re.split(r'[;\n]', authors_raw)
-                        for entry in author_entries:
-                            entry = entry.strip()
-                            if not entry: continue
-
-                            orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', entry)
-                            orcid = orcid_match.group(1) if orcid_match else ""
-                            name_part = re.sub(r'\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?', '', entry).strip()
-                            if name_part.startswith('(') and name_part.endswith(')'):
-                                name_part = name_part[1:-1].strip()
-
-                            parts = name_part.split(',')
-                            last_name = parts[0].strip() if len(parts) > 0 else ""
-                            first_name = parts[1].strip() if len(parts) > 1 else ""
-
-                            if first_name or last_name:
-                                new_investigators.append({
-                                    'first_name': first_name,
-                                    'last_name': last_name,
-                                    'person_orcid': orcid,
-                                    'email': '',
-                                    'organization_name': ''
-                                })
-                        if new_investigators:
-                            st.session_state.metadata['Investigator'] = new_investigators
 
                     # Map Related Work
                     rel_works = []
@@ -652,6 +629,72 @@ if st.session_state.phase == 0:
         st.subheader("Investigator Information")
         st.markdown("Add one or more investigators for this dataset.")
         
+        # --- Batch Import from Proposal ---
+        if st.session_state.get('raw_authors'):
+            with st.expander("📥 Import Investigators from Proposal", expanded=True):
+                st.info("Found raw author information from the imported proposal. Choose a parsing strategy to preview and add them.")
+                st.code(st.session_state.raw_authors)
+
+                strategy = st.selectbox(
+                    "Parsing Strategy",
+                    options=[
+                        "Family, Given - ORCID (e.g. Smith, John - 0000-0002-1234-5678)",
+                        "Family, Given (e.g. Smith, John)",
+                        "Given Family (e.g. John Smith)"
+                    ],
+                    index=0
+                )
+
+                # Parsing logic
+                raw_lines = re.split(r'[;\n]', st.session_state.raw_authors)
+                parsed_results = []
+
+                for line in raw_lines:
+                    line = line.strip()
+                    if not line: continue
+
+                    # Always look for ORCID first
+                    orcid_match = re.search(r'(\d{4}-\d{4}-\d{4}-\d{3}[\dX])', line)
+                    orcid = orcid_match.group(1) if orcid_match else ""
+
+                    # Remove ORCID from line for name parsing
+                    name_part = re.sub(r'\(?\d{4}-\d{4}-\d{4}-\d{3}[\dX]\)?', '', line).strip()
+                    name_part = name_part.rstrip(' -').strip() # Remove trailing hyphen or space
+                    if name_part.startswith('(') and name_part.endswith(')'):
+                        name_part = name_part[1:-1].strip()
+
+                    first_name = ""
+                    last_name = ""
+
+                    if strategy.startswith("Family, Given"):
+                        parts = name_part.split(',')
+                        last_name = parts[0].strip() if len(parts) > 0 else ""
+                        first_name = parts[1].strip() if len(parts) > 1 else ""
+                    else: # Given Family
+                        parts = name_part.split()
+                        if len(parts) >= 2:
+                            first_name = parts[0].strip()
+                            last_name = " ".join(parts[1:]).strip()
+                        elif len(parts) == 1:
+                            first_name = parts[0].strip()
+
+                    parsed_results.append({
+                        'first_name': first_name,
+                        'last_name': last_name,
+                        'person_orcid': orcid,
+                        'email': '',
+                        'organization_name': ''
+                    })
+
+                st.write("**Preview & Edit Parsed Results:**")
+                edited_df = st.data_editor(pd.DataFrame(parsed_results), num_rows="dynamic", use_container_width=True, key="investigator_editor")
+
+                if st.button("➕ Add All Parsed Investigators"):
+                    st.session_state.metadata['Investigator'].extend(edited_df.to_dict('records'))
+                    st.session_state.raw_authors = "" # Clear after adding
+                    st.success("✅ Added investigators!")
+                    st.rerun()
+
         # Display existing investigators
         if st.session_state.metadata['Investigator']:
             st.write("**Current Investigators:**")

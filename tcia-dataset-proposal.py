@@ -127,9 +127,6 @@ Welcome to the TCIA Dataset Proposal Form. Please fill out the information below
 publishing a new dataset or analysis results on The Cancer Imaging Archive.
 """)
 
-# Initialize session state for authors
-if 'validated_authors' not in st.session_state:
-    st.session_state.validated_authors = []
 
 # Initial choice
 proposal_type = st.radio(
@@ -169,117 +166,14 @@ if nickname and not re.match(r"^[a-zA-Z0-9-]+$", nickname):
 
 # Authors Section
 st.write(f"**{LABELS['Authors']}**")
-authors_raw = st.text_area("Paste author names or ORCIDs (one per line or separated by semicolons)",
-                           help="Example: John Smith; 0000-0002-6543-3443; Jane Doe",
+st.markdown("""
+Please list all authors in the order you'd like them to appear if the data set is published on TCIA.
+Names should be listed as **(FAMILY, GIVEN) - ORCID**.
+You can quickly register for an ORCID at [https://orcid.org/signin](https://orcid.org/signin) if you don't have one already.
+""")
+authors_raw = st.text_area("Example: Smith, John - 0000-0002-1234-5678; Doe, Jane",
+                           help="List authors one per line or separated by semicolons.",
                            key="authors_raw_input")
-
-if st.button("🔍 Process & Validate Authors"):
-    if authors_raw:
-        lines = re.split(r'[;\n]', authors_raw)
-        new_authors = []
-        for line in lines:
-            line = line.strip()
-            if not line: continue
-            parsed = orcid_helper.parse_author_input(line)
-
-            matches = []
-            with st.spinner(f"Searching ORCID for {line}..."):
-                if parsed['orcid']:
-                    profile = orcid_helper.get_orcid_profile(parsed['orcid'])
-                    if profile:
-                        matches = [profile]
-                else:
-                    matches = orcid_helper.get_profiles_for_name(parsed['first_name'], parsed['last_name'])
-
-            new_authors.append({
-                'id': str(uuid.uuid4()),
-                'parsed': parsed,
-                'matches': matches,
-                'selected_orcid': parsed['orcid'] if parsed['orcid'] else (matches[0]['orcid_id'] if len(matches) == 1 else None),
-                'manual_first': parsed['first_name'],
-                'manual_last': parsed['last_name'],
-                'manual_org': matches[0]['organization'] if len(matches) == 1 else '',
-                'manual_email': ''
-            })
-        st.session_state.validated_authors = new_authors
-    else:
-        st.warning("Please paste some author information first.")
-
-if st.session_state.validated_authors:
-    with st.expander("✅ Resolved Authors", expanded=True):
-        authors_to_delete = []
-        for i, auth in enumerate(st.session_state.validated_authors):
-            auth_id = auth.get('id', str(i)) # Fallback for old sessions
-            col_header, col_delete = st.columns([6, 1])
-            with col_header:
-                st.markdown(f"**Author {i+1}:** `{auth['parsed']['original_text']}`")
-            with col_delete:
-                if st.button("🗑️", key=f"del_auth_btn_{auth_id}", help="Remove this author"):
-                    authors_to_delete.append(i)
-
-            col_sel, col_det = st.columns([2, 2])
-
-            with col_sel:
-                if auth['matches']:
-                    match_options = ["(Keep as Name Only)"] + [f"{m['given_names']} {m['family_name']} - {m['organization']} ({m['orcid_id']})" for m in auth['matches']]
-
-                    default_idx = 0
-                    if auth['selected_orcid']:
-                        for idx, m in enumerate(auth['matches']):
-                            if m['orcid_id'] == auth['selected_orcid']:
-                                default_idx = idx + 1
-                                break
-
-                    sel = st.selectbox(f"ORCID Match for #{i+1}", options=match_options, index=default_idx, key=f"sel_auth_{auth_id}")
-
-                    if sel == "(Keep as Name Only)":
-                        st.session_state.validated_authors[i]['selected_orcid'] = None
-                    else:
-                        match_id = re.search(r'\((0000-\d{4}-\d{4}-\d{3}[\dX])\)', sel).group(1)
-                        st.session_state.validated_authors[i]['selected_orcid'] = match_id
-                        # Update details if changed
-                        for m in auth['matches']:
-                            if m['orcid_id'] == match_id:
-                                st.session_state.validated_authors[i]['manual_first'] = m['given_names']
-                                st.session_state.validated_authors[i]['manual_last'] = m['family_name']
-                                st.session_state.validated_authors[i]['manual_org'] = m['organization']
-                                # Update keys to refresh inputs
-                                st.session_state[f"f_name_{auth_id}"] = m['given_names']
-                                st.session_state[f"l_name_{auth_id}"] = m['family_name']
-                                st.session_state[f"org_{auth_id}"] = m['organization']
-                else:
-                    st.info("No ORCID matches found.")
-
-                if st.button("🔄 Re-scan ORCID", key=f"rescan_{auth_id}", help="Search ORCID using the current First and Last names"):
-                    with st.spinner(f"Searching ORCID for {auth['manual_first']} {auth['manual_last']}..."):
-                        matches = orcid_helper.get_profiles_for_name(auth['manual_first'], auth['manual_last'])
-                        st.session_state.validated_authors[i]['matches'] = matches
-                        if matches and len(matches) == 1:
-                            st.session_state.validated_authors[i]['selected_orcid'] = matches[0]['orcid_id']
-                            st.session_state.validated_authors[i]['manual_org'] = matches[0]['organization']
-                            st.session_state[f"org_{auth_id}"] = matches[0]['organization']
-                        st.rerun()
-
-            with col_det:
-                st.session_state.validated_authors[i]['manual_first'] = st.text_input("First Name", value=auth['manual_first'], key=f"f_name_{auth_id}")
-                st.session_state.validated_authors[i]['manual_last'] = st.text_input("Last Name", value=auth['manual_last'], key=f"l_name_{auth_id}")
-                st.session_state.validated_authors[i]['manual_org'] = st.text_input("Organization", value=auth['manual_org'], key=f"org_{auth_id}")
-                st.session_state.validated_authors[i]['manual_email'] = st.text_input("Email (optional for proposal, required for Investigator TSV)", value=auth.get('manual_email', ''), key=f"email_{auth_id}")
-
-            if auth.get('selected_orcid'):
-                st.success(f"✅ Linked to ORCID: {auth['selected_orcid']}")
-            else:
-                st.info("ℹ️ Not linked to ORCID (Manual Entry)")
-            st.markdown("---")
-
-        if authors_to_delete:
-            for index in sorted(authors_to_delete, reverse=True):
-                st.session_state.validated_authors.pop(index)
-            st.rerun()
-
-        if st.button("Clear Author List"):
-            st.session_state.validated_authors = []
-            st.rerun()
 
 abstract = st.text_area(LABELS["Abstract"], help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
 
@@ -357,8 +251,8 @@ if submit_button:
     elif not re.match(r"^[a-zA-Z0-9-]+$", nickname):
         st.error("⚠️ Invalid nickname. Please use only letters, numbers, and dashes.")
         st.stop()
-    if not st.session_state.validated_authors:
-        missing_fields.append(LABELS["Authors"] + " (Please validate at least one author)")
+    if not authors_raw:
+        missing_fields.append(LABELS["Authors"])
     if not abstract: missing_fields.append(LABELS["Abstract"])
     if not published_elsewhere: missing_fields.append(LABELS["Published Elsewhere"])
 
@@ -374,13 +268,6 @@ if submit_button:
         for field in missing_fields:
             st.write(f"- {field}")
     else:
-        # Format authors for summary
-        authors_display = "; ".join([
-            f"{a['manual_last']}, {a['manual_first']} ({a['selected_orcid']})" if a['selected_orcid']
-            else f"{a['manual_last']}, {a['manual_first']}"
-            for a in st.session_state.validated_authors
-        ])
-
         # Prepare data for files
         all_responses = {
             "Proposal Type": proposal_type,
@@ -393,7 +280,7 @@ if submit_button:
             "Time Constraints": time_constraints,
             "Title": title,
             "Nickname": nickname,
-            "Authors": authors_display,
+            "Authors": authors_raw,
             "Abstract": abstract,
             "Published Elsewhere": published_elsewhere
         }
@@ -403,25 +290,6 @@ if submit_button:
         tsv_buffer = io.StringIO()
         df = pd.DataFrame([all_responses])
         df.to_csv(tsv_buffer, sep='\t', index=False)
-
-        # Generate Investigators TSV
-        inv_data = []
-        for a in st.session_state.validated_authors:
-            inv_data.append({
-                'first_name': a['manual_first'],
-                'last_name': a['manual_last'],
-                'person_orcid': a.get('selected_orcid', ''),
-                'organization_name': a.get('manual_org', ''),
-                'email': a.get('manual_email', '')
-            })
-        inv_df = pd.DataFrame(inv_data)
-        # Ensure columns match Investigator schema (exclude ID fields)
-        inv_cols = [p['Property'] for p in schema.get('Investigator', []) if not p['Property'].endswith('_id') and '.' not in p['Property']]
-        for col in inv_cols:
-            if col not in inv_df.columns:
-                inv_df[col] = ""
-        inv_df = inv_df[inv_cols]
-        inv_tsv_content = inv_df.to_csv(sep='\t', index=False)
 
         # Generate DOCX
         doc = Document()
@@ -491,14 +359,12 @@ if submit_button:
         today = datetime.date.today().isoformat()
         pkg_name = f"{nickname}_proposal_package_{today}.zip"
         summary_tsv_name = f"{nickname}_proposal_summary_{today}.tsv"
-        investigators_tsv_name = f"{nickname}_investigators_{today}.tsv"
         docx_name = f"{nickname}_proposal_summary_{today}.docx"
         pdf_name = f"{nickname}_agreement_updated_{today}.pdf"
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             zip_file.writestr(summary_tsv_name, tsv_buffer.getvalue())
-            zip_file.writestr(investigators_tsv_name, inv_tsv_content)
             zip_file.writestr(docx_name, docx_buffer.getvalue())
             if pdf_success:
                 zip_file.writestr(pdf_name, pdf_buffer.getvalue())
