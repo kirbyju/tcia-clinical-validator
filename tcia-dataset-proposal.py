@@ -22,8 +22,6 @@ import uuid
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
-st.image("https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png", width=300)
-
 # Constants & Configuration
 RESOURCES_DIR = os.path.join(os.path.dirname(__file__), 'tcia-remapping-skill', 'resources')
 
@@ -60,9 +58,8 @@ LABELS = {
     "image_types": "Which image types are included in the data set?*",
     "supporting_data": "Which kinds of supporting data are included in the data set?*",
     "file_formats": "Specify the file format utilized for each type of data*",
-    "modifications": "Describe any steps taken to modify data prior to submission*",
+    "modifications": "Describe any steps taken to de-identify or otherwise modify the data in preparation for submission*",
     "faces": "Does your data contain any images of patient faces?*",
-    "exceptions": "Do you need to request any exceptions to TCIA's Open Access Policy?*",
     "collections_analyzed": "Which TCIA collection(s) did you analyze?*",
     "derived_types": "What types of derived data are included in the dataset?*",
     "image_records": "Do you have records to indicate exactly which TCIA images analyzed?*",
@@ -73,6 +70,21 @@ LABELS = {
     "acknowledgments": "Acknowledgments or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*"
 }
+
+IMAGE_FORMATS = [
+    "DICOM", "NIfTI", "PNG", "JPEG", "Aperio (.svs, .tif)",
+    "Hamamatsu (.vms, .vmu, .ndpi)", "Leica (.scn)", "MIRAX (.mrxs)",
+    "Philips (.tiff)", "Sakura (.svslide)", "Trestle (.tif)",
+    "Ventana (.bif, .tif)", "Generic tiled TIFF (.tif)", "Other"
+]
+SUPPORT_FORMATS = ["Tabular (.csv, .tsv, .xlsx)", "JSON", "Text", "Other"]
+COMBINED_FORMATS = [
+    "DICOM", "NIfTI", "PNG", "JPEG", "Aperio (.svs, .tif)",
+    "Hamamatsu (.vms, .vmu, .ndpi)", "Leica (.scn)", "MIRAX (.mrxs)",
+    "Philips (.tiff)", "Sakura (.svslide)", "Trestle (.tif)",
+    "Ventana (.bif, .tif)", "Generic tiled TIFF (.tif)",
+    "Tabular (.csv, .tsv, .xlsx)", "JSON", "Text", "Other"
+]
 
 def load_json(filepath):
     with open(filepath, 'r') as f:
@@ -123,11 +135,15 @@ SMTP_PORT = int(os.getenv("SMTP_PORT", 587))
 SMTP_USER = os.getenv("SMTP_USER")
 SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 
-st.title("📋 TCIA Dataset Proposal Form")
-st.markdown("""
-Welcome to the TCIA Dataset Proposal Form. Please fill out the information below to submit a proposal for
-publishing a new dataset or analysis results on The Cancer Imaging Archive.
-""")
+st.markdown(
+    """
+    <div style="display: flex; align-items: center; margin-bottom: 20px;">
+        <img src="https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png" style="height: 50px; margin-right: 15px;">
+        <h1 style="margin: 0;">Dataset Proposal Form</h1>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
 
 
 # Initial choice
@@ -197,7 +213,7 @@ if proposal_type == "New Collection Proposal":
 
     extra_data['image_types'] = st.multiselect(
         LABELS["image_types"],
-        options=["MR", "CT", "PET", "PET-CT", "PET-MR", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"],
+        options=["MR", "CT", "PET", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"],
         key="image_types"
     )
     extra_data['supporting_data'] = st.multiselect(
@@ -205,10 +221,35 @@ if proposal_type == "New Collection Proposal":
         options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"],
         key="supporting_data"
     )
-    extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats")
+
+    st.write(f"**{LABELS['file_formats']}**")
+    nc_formats = []
+    for itype in extra_data.get('image_types', []):
+        col1, col2 = st.columns([1, 1])
+        with col1: st.write(f"Format for **{itype}**:")
+        with col2:
+            fmt = st.selectbox(f"Select format for {itype}", options=IMAGE_FORMATS, key=f"fmt_img_{itype}", label_visibility="collapsed")
+            if fmt == "Other":
+                other_fmt = st.text_input(f"Specify other format for {itype}", key=f"other_fmt_img_{itype}", label_visibility="collapsed")
+                nc_formats.append(f"{itype} - {other_fmt}" if other_fmt else f"{itype} - Other")
+            else:
+                nc_formats.append(f"{itype} - {fmt}")
+    for stype in extra_data.get('supporting_data', []):
+        if stype == "No additional data": continue
+        col1, col2 = st.columns([1, 1])
+        with col1: st.write(f"Format for **{stype}**:")
+        with col2:
+            opts = COMBINED_FORMATS if stype == "Image Analyses" else SUPPORT_FORMATS
+            fmt = st.selectbox(f"Select format for {stype}", options=opts, key=f"fmt_supp_{stype}", label_visibility="collapsed")
+            if fmt == "Other":
+                other_fmt = st.text_input(f"Specify other format for {stype}", key=f"other_fmt_supp_{stype}", label_visibility="collapsed")
+                nc_formats.append(f"{stype} - {other_fmt}" if other_fmt else f"{stype} - Other")
+            else:
+                nc_formats.append(f"{stype} - {fmt}")
+    extra_data['file_formats'] = "; ".join(nc_formats)
+
     extra_data['modifications'] = st.text_area(LABELS["modifications"], key="modifications")
     extra_data['faces'] = st.radio(LABELS["faces"], options=["Yes", "No"], key="faces")
-    extra_data['exceptions'] = st.text_input(LABELS["exceptions"], value="No exceptions requested", key="exceptions")
 else: # Analysis Results
     extra_data['collections_analyzed'] = st.text_input(LABELS["collections_analyzed"], key="collections_analyzed")
     extra_data['derived_types'] = st.multiselect(
@@ -217,7 +258,20 @@ else: # Analysis Results
         key="derived_types"
     )
     extra_data['image_records'] = st.radio(LABELS["image_records"], options=["Yes, I know exactly.", "No, I need assistance."], key="image_records")
-    extra_data['file_formats'] = st.text_area(LABELS["file_formats"], key="file_formats_analysis")
+
+    st.write(f"**{LABELS['file_formats']}**")
+    ar_formats = []
+    for dtype in extra_data.get('derived_types', []):
+        col1, col2 = st.columns([1, 1])
+        with col1: st.write(f"Format for **{dtype}**:")
+        with col2:
+            fmt = st.selectbox(f"Select format for {dtype}", options=COMBINED_FORMATS, key=f"fmt_ar_{dtype}", label_visibility="collapsed")
+            if fmt == "Other":
+                other_fmt = st.text_input(f"Specify other format for {dtype}", key=f"other_fmt_ar_{dtype}", label_visibility="collapsed")
+                ar_formats.append(f"{dtype} - {other_fmt}" if other_fmt else f"{dtype} - Other")
+            else:
+                ar_formats.append(f"{dtype} - {fmt}")
+    extra_data['file_formats'] = "; ".join(ar_formats)
 # Shared bottom fields
 col1, col2 = st.columns(2)
 with col1:
