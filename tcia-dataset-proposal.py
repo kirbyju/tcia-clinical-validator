@@ -194,6 +194,7 @@ st.write(f"**{LABELS['Authors']}**")
 st.markdown("""
 Please list all authors in the order you'd like them to appear if the data set is published on TCIA.
 Names should be listed as **(FAMILY, GIVEN) - ORCID**.
+Please use **semicolons** to separate authors, or list them **one per line**.
 You can quickly register for an ORCID at [https://orcid.org/signin](https://orcid.org/signin) if you don't have one already.
 """)
 authors_raw = st.text_area("Example: Smith, John - 0000-0002-1234-5678; Doe, Jane",
@@ -213,22 +214,22 @@ if proposal_type == "New Collection Proposal":
         site_raw = permissible_values.get('primary_site', []) if permissible_values else []
         site_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in site_raw])))
         site_options.append("Other")
-        selected_site = st.selectbox(LABELS["disease_site"], options=[""] + site_options, key="disease_site_sb")
-        if selected_site == "Other":
+        selected_sites = st.multiselect(LABELS["disease_site"], options=site_options, key="disease_site_ms")
+        if "Other" in selected_sites:
             other_site = st.text_input("Please specify other primary disease site", key="other_disease_site")
-            extra_data['disease_site'] = f"Other - {other_site}" if other_site else ""
+            extra_data['disease_site'] = [s if s != "Other" else f"Other - {other_site}" for s in selected_sites] if other_site else selected_sites
         else:
-            extra_data['disease_site'] = selected_site
+            extra_data['disease_site'] = selected_sites
     with col2:
         diag_raw = permissible_values.get('primary_diagnosis', []) if permissible_values else []
         diag_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in diag_raw])))
         diag_options.append("Other")
-        selected_diag = st.selectbox(LABELS["diagnosis"], options=[""] + diag_options, key="diagnosis_sb")
-        if selected_diag == "Other":
+        selected_diags = st.multiselect(LABELS["diagnosis"], options=diag_options, key="diagnosis_ms")
+        if "Other" in selected_diags:
             other_diag = st.text_input("Please specify other histologic diagnosis", key="other_diagnosis")
-            extra_data['diagnosis'] = f"Other - {other_diag}" if other_diag else ""
+            extra_data['diagnosis'] = [d if d != "Other" else f"Other - {other_diag}" for d in selected_diags] if other_diag else selected_diags
         else:
-            extra_data['diagnosis'] = selected_diag
+            extra_data['diagnosis'] = selected_diags
 
     extra_data['image_types'] = st.multiselect(
         LABELS["image_types"],
@@ -372,11 +373,24 @@ if submit_button:
         # Generate DOCX
         doc = Document()
         doc.add_heading(f"TCIA Dataset Proposal: {title}", 0)
+
+        table = doc.add_table(rows=0, cols=2)
+        table.style = 'Table Grid'
+
         for key, value in all_responses.items():
             label = LABELS.get(key, key)
+            row_cells = table.add_row().cells
+            row_cells[0].text = label
 
-            doc.add_paragraph(f"{label}:", style='Heading 2')
-            doc.add_paragraph(str(value))
+            if isinstance(value, list):
+                row_cells[1].text = ", ".join(map(str, value))
+            else:
+                row_cells[1].text = str(value)
+
+            # Make the first column bold
+            for paragraph in row_cells[0].paragraphs:
+                for run in paragraph.runs:
+                    run.bold = True
 
         docx_buffer = io.BytesIO()
         doc.save(docx_buffer)
@@ -435,10 +449,10 @@ if submit_button:
 
         # Create ZIP
         today = datetime.date.today().isoformat()
-        pkg_name = f"{nickname}_proposal_package_{today}.zip"
+        pkg_name = f"{nickname}_TCIA_Proposal_{today}.zip"
         summary_tsv_name = f"{nickname}_proposal_summary_{today}.tsv"
         docx_name = f"{nickname}_proposal_summary_{today}.docx"
-        pdf_name = f"{nickname}_agreement_updated_{today}.pdf"
+        pdf_name = f"{nickname}_DSA_{today}.pdf"
 
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
@@ -470,9 +484,9 @@ if submit_button:
                 msg['From'] = SMTP_USER
                 msg['To'] = HELP_DESK_EMAIL
                 msg['Cc'] = ", ".join([sci_poc_email, tech_poc_email, legal_poc_email])
-                msg['Subject'] = f"New Dataset Proposal: {title}"
+                msg['Subject'] = f"TCIA Dataset Proposal: {nickname}"
 
-                body = f"A new dataset proposal has been submitted via the Dataset Proposal Form.\n\nType: {proposal_type}\nTitle: {title}\nSubmitters: {', '.join([sci_poc_email, tech_poc_email, legal_poc_email])}"
+                body = f"Thank you for your interest in publishing your dataset on TCIA! Our Advisory Group meets quarterly to review proposals. We've received your proposal and will follow up shortly with any preliminary questions we have. If you have any questions in the meantime, please reply-all to this message.\n\n---\n\nType: {proposal_type}\nTitle: {title}\nSubmitters: {', '.join([sci_poc_email, tech_poc_email, legal_poc_email])}"
                 msg.attach(MIMEText(body, 'plain'))
 
                 part = MIMEBase('application', 'zip')
@@ -508,7 +522,7 @@ if st.session_state.get('proposal_generated'):
             st.download_button("Download DOCX Summary", data=files['docx'], file_name=f"{nickname_val}_proposal_summary_{today}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document")
         with col3:
             if files['pdf']:
-                st.download_button("Download PDF Agreement", data=files['pdf'], file_name=f"{nickname_val}_agreement_updated_{today}.pdf", mime="application/pdf")
+                st.download_button("Download PDF Agreement", data=files['pdf'], file_name=f"{nickname_val}_DSA_{today}.pdf", mime="application/pdf")
 
         st.info("💡 **Please download these documents and keep a copy for your records.**")
         st.info(f"💡 **Manual Submission**: Please email the generated files as attachments to **{HELP_DESK_EMAIL}**.")
