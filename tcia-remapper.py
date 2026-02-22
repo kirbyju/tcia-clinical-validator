@@ -648,7 +648,7 @@ if st.session_state.phase == 0:
                 raw_lines = re.split(r'[;\n]', st.session_state.raw_authors)
                 parsed_results = []
 
-                for line in raw_lines:
+                for i, line in enumerate(raw_lines, 1):
                     line = line.strip()
                     if not line: continue
 
@@ -678,6 +678,7 @@ if st.session_state.phase == 0:
                             first_name = parts[0].strip()
 
                     parsed_results.append({
+                        'author_order': i,
                         'first_name': first_name,
                         'last_name': last_name,
                         'person_orcid': orcid,
@@ -729,6 +730,7 @@ if st.session_state.phase == 0:
 
         with st.form("investigator_form"):
             inv_prepopulate = {
+                'author_order': len(st.session_state.metadata['Investigator']) + 1,
                 'first_name': st.session_state.get('inv_first', ''),
                 'last_name': st.session_state.get('inv_last', ''),
                 'organization_name': st.session_state.get('inv_org', ''),
@@ -865,8 +867,8 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save & Next")
             if submitted:
-                # Both Publication Type and Relationship Type are now required
-                if work_data.get('DOI') and work_data.get('title') and work_data.get('publication_type') and work_data.get('relationship_type'):
+                # DOI and Publication Type are required by the model
+                if work_data.get('DOI') and work_data.get('publication_type'):
                     st.session_state.metadata['Related_Work'].append(work_data)
 
                     # Clear session state for next entry
@@ -878,7 +880,7 @@ if st.session_state.phase == 0:
                     st.session_state.phase0_step = 'Review'
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields (DOI, Title, Authorship, Publication Type, Relationship Type).")
+                    st.error("Please fill in all required fields (DOI, Publication Type).")
     
     # TAB 6: Review & Generate
     elif st.session_state.phase0_step == "Review":
@@ -896,6 +898,10 @@ if st.session_state.phase == 0:
 
             # Create a copy to avoid modifying session state directly for writing
             processed_data = [item.copy() for item in data_list]
+
+            # Sort investigators by author_order
+            if entity_name == "Investigator":
+                processed_data.sort(key=lambda x: int(x.get('author_order', 999)) if str(x.get('author_order', '')).isdigit() else 999)
 
             # Check for relationships to other Phase 0 entities
             for rel_name, rel_info in relationships.items():

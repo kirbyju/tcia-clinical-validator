@@ -27,7 +27,7 @@ Nodes:
     - metastasis_anatomic_site
     - primary_diagnosis
     - primary_site
-    - subject.subject.id
+    - subject.subject_id
     Tags:
       assignment: core
       category: case
@@ -50,7 +50,7 @@ Nodes:
     - histopathology.histopathology_id
     - license
     - md5sum
-    - multiplex_image.multiplex_image_id
+    - multiplex_imaging.multiplex_image_id
     - procedure.procedure_id
     - radiology.radiology_id
     - subject.subject_id
@@ -70,6 +70,7 @@ Nodes:
     - lens_numerical_aperture
     - nominal_magnification
     - objective
+    - procedure.procedure_id
     - staining_method
     - tissue_fixative
     - tumor_tissue_type
@@ -81,6 +82,7 @@ Nodes:
       template: 'Yes'
   Investigator:
     Props:
+    - author_order
     - dataset.dataset_id
     - email
     - first_name
@@ -115,6 +117,7 @@ Nodes:
     - fluorophore
     - lot
     - metal_isotope_element
+    - multiplex_imaging.multiplex_image_id
     - oligo_barcode_lower_strand
     - oligo_barcode_upper_strand
     - rrid_identifier
@@ -137,6 +140,7 @@ Nodes:
     - multiplex_image_id
     - nominal_magnification
     - objective
+    - procedure.procedure_id
     - pyramid
     - staining_method
     - tissue_fixative
@@ -193,6 +197,7 @@ Nodes:
     - SoftwareVersions
     - StudyDesc
     - is_phantom
+    - procedure.procedure_id
     Tags:
       assignment: core
       category: data file
