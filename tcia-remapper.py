@@ -1045,17 +1045,18 @@ elif st.session_state.phase == 1:
             # Get all target properties from schema
             all_properties = {}
             excluded_entities = list(st.session_state.metadata.keys())
-            phase0_linkages = [f"{e.lower()}." for e in excluded_entities]
 
             for entity_name, properties in schema.items():
                 if entity_name in excluded_entities:
                     continue
                 for prop in properties:
                     prop_name = prop['Property']
-                    # Exclude linkage properties that refer to Phase 0 entities
-                    is_phase0_linkage = any(prop_name.startswith(prefix) for prefix in phase0_linkages)
-                    if not is_phase0_linkage:
-                        all_properties[f"{entity_name}.{prop_name}"] = prop
+                    # Hide linkage properties (containing a dot) from the mapping UI
+                    # These are automatically handled based on primary ID mappings
+                    if "." in prop_name:
+                        continue
+                    # print(f"DEBUG: prop_name={prop_name}")
+                    all_properties[f"{entity_name}.{prop_name}"] = prop
             
             # Create mapping interface
             st.write("**Map Source Columns to Target Properties:**")
@@ -1146,7 +1147,30 @@ elif st.session_state.phase == 2:
         st.warning("Structure mapping not confirmed. Please complete Phase 1 first.")
     else:
         df = st.session_state.uploaded_data
+
+        # --- Automatic Linkage Handling ---
+        # 1. Identify primary ID mappings from the current column mapping
+        primary_id_mappings = {}
+        for target, source in st.session_state.column_mapping.items():
+            if "." in target:
+                entity, prop = target.split(".", 1)
+                # Identify if this is the primary ID for the entity (e.g., Subject.subject_id)
+                if prop.lower() == f"{entity.lower()}_id" or prop.lower() == "id":
+                    primary_id_mappings[entity.lower()] = source
         
+        # 2. Automatically map any linkage properties that point to these identified entities
+        for entity_name, properties in schema.items():
+            for prop in properties:
+                prop_name = prop['Property']
+                if "." in prop_name:
+                    # Linkage properties are in format 'target_entity.property'
+                    target_entity_name = prop_name.split(".")[0].lower()
+                    if target_entity_name in primary_id_mappings:
+                        full_target_prop = f"{entity_name}.{prop_name}"
+                        # Only auto-fill if not already manually mapped
+                        if full_target_prop not in st.session_state.column_mapping:
+                            st.session_state.column_mapping[full_target_prop] = primary_id_mappings[target_entity_name]
+
         # Split data by schema
         split_data = split_data_by_schema(df, st.session_state.column_mapping, schema)
 
