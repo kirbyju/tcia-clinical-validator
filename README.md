@@ -1,21 +1,11 @@
-# tcia-clinical-validator
+# NCI Imaging Submission Validator & Proposal Tools
 
-A streamlit validator to ensure Common Data Element compliance for submitting clinical data to TCIA.
+This repository contains tools designed to facilitate the submission of imaging and clinical research data to the National Cancer Institute (NCI).
 
 ## Tools Available
 
-This repository contains two Streamlit applications:
-
-### 1. TCIA Clinical Data Validator (`tcia-clinical-validator.py`)
-The original validator that ensures your clinical data meets TCIA Common Data Element (CDE) compliance requirements.
-
-**To run:**
-```bash
-streamlit run tcia-clinical-validator.py
-```
-
-### 2. TCIA Dataset Remapper (`tcia-remapper.py`)
-An interactive tool that helps transform clinical and imaging research data into the standardized TCIA data model using a tiered conversational workflow.
+### 1. NCI Imaging Submission Validator (`tcia-remapper.py`)
+An interactive tool that helps transform clinical and imaging research data into the standardized NCI Imaging Submission Model using a tiered conversational workflow.
 
 **To run:**
 ```bash
@@ -23,11 +13,22 @@ streamlit run tcia-remapper.py
 ```
 
 **Features:**
-- **Phase 0**: Dataset-level metadata collection (Program, Dataset, Investigator, Related Work)
-- **Phase 1**: Structure mapping - map source columns to TCIA target properties
-- **Phase 2**: Value standardization using ontology-enhanced matching (NCIt, UBERON, SNOMED)
+- **Phase 0: Summary Metadata**: Collect high-level metadata for Program, Dataset, Investigator, and Related Work. Supports importing data from the Dataset Proposal Form.
+- **Phase 1: Column Headers**: Map your source data columns to target entities. Inter-entity linkages are automatically handled.
+- **Phase 2: Permissible Values**: Standardize data values using ontology-enhanced matching (NCIt, UBERON, SNOMED) and generate standardized TSV files.
 
-See [REMAPPER_README.md](REMAPPER_README.md) for detailed usage instructions.
+### 2. TCIA Dataset Proposal Form (`tcia-dataset-proposal.py`)
+A streamlined application for researchers to propose new imaging collections or analysis results to TCIA.
+
+**To run:**
+```bash
+streamlit run tcia-dataset-proposal.py
+```
+
+**Features:**
+- Collects necessary contact information and dataset details.
+- Automatically generates a proposal package including a summary TSV, a DOCX summary, and a pre-filled Data Submission Agreement (PDF).
+- The generated TSV can be imported directly into the **NCI Imaging Submission Validator** to pre-populate metadata.
 
 ## Installation
 
@@ -37,16 +38,17 @@ Install the required dependencies:
 pip install -r requirements.txt
 ```
 
-## Testing
+## Data Model & Ontology Support
 
-To test the remapper functionality:
+These tools are built upon the [NCI Imaging Submission Model](https://github.com/CBIIT/nci-imaging-submission-model).
 
-```bash
-python test_remapper.py
-```
+Value standardization leverages the following ontologies:
+- **NCIt** (NCI Thesaurus) - Cancer-related terminology
+- **UBERON** - Anatomical structures
+- **SNOMED CT** - Clinical terminology
 
 ## Resources
 
 - [TCIA (The Cancer Imaging Archive)](https://www.cancerimagingarchive.net/)
 - [TCIA Submission Guidelines](https://www.cancerimagingarchive.net/submit-data/)
-
+- [CICADAS Checklist](https://cancerimagingarchive.net/cicadas)

@@ -244,14 +244,14 @@
       "Required/optional": null
     },
     {
-      "Property": "multiplex_image.multiplex_image_id",
+      "Property": "multiplex_imaging.multiplex_image_id",
       "Description": null,
       "Required/optional": null
     }
   ],
   "Diagnosis": [
     {
-      "Property": "subject.subject.id",
+      "Property": "subject.subject_id",
       "Description": null,
       "Required/optional": null
     },
