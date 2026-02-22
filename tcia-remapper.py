@@ -637,6 +637,7 @@ if st.session_state.phase == 0:
                 strategy = st.selectbox(
                     "Parsing Strategy",
                     options=[
+                        "Auto-detect",
                         "Family, Given - ORCID (e.g. Smith, John - 0000-0002-1234-5678)",
                         "Family, Given (e.g. Smith, John)",
                         "Given Family (e.g. John Smith)"
@@ -665,7 +666,14 @@ if st.session_state.phase == 0:
                     first_name = ""
                     last_name = ""
 
-                    if strategy.startswith("Family, Given"):
+                    actual_strategy = strategy
+                    if strategy == "Auto-detect":
+                        if ',' in name_part:
+                            actual_strategy = "Family, Given"
+                        else:
+                            actual_strategy = "Given Family"
+
+                    if actual_strategy.startswith("Family, Given"):
                         parts = name_part.split(',')
                         last_name = parts[0].strip() if len(parts) > 0 else ""
                         first_name = parts[1].strip() if len(parts) > 1 else ""
