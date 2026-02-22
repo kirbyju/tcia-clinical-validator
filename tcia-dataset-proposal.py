@@ -44,10 +44,13 @@ LABELS = {
     "Proposal Type": "What kind of dataset are you submitting?",
     "Scientific POC Name": "Scientific POC Name*",
     "Scientific POC Email": "Scientific POC Email*",
+    "Scientific POC Phone": "Scientific POC Phone",
     "Technical POC Name": "Technical POC Name*",
     "Technical POC Email": "Technical POC Email*",
+    "Technical POC Phone": "Technical POC Phone",
     "Legal POC Name": "Legal POC Name*",
     "Legal POC Email": "Legal POC Email*",
+    "Legal POC Phone": "Legal POC Phone",
     "Title": "Suggest a descriptive title for your dataset*",
     "Nickname": "Suggest a shorter nickname for your dataset*",
     "Authors": "List the authors of this data set*",
@@ -166,7 +169,7 @@ st.subheader("Contact Information")
 if SMTP_SERVER and SMTP_USER and SMTP_PASSWORD:
     st.info("💡 **Note**: After completing this form, a copy of this proposal will be emailed to the Scientific, Technical, and Legal points of contact listed below.")
 
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     sci_poc_name = st.text_input(LABELS["Scientific POC Name"], help="The person to contact about the proposal and data collection.", key="sci_poc_name")
     tech_poc_name = st.text_input(LABELS["Technical POC Name"], help="The person involved in sending the data.", key="tech_poc_name")
@@ -175,6 +178,10 @@ with col2:
     sci_poc_email = st.text_input(LABELS["Scientific POC Email"], key="sci_poc_email")
     tech_poc_email = st.text_input(LABELS["Technical POC Email"], key="tech_poc_email")
     legal_poc_email = st.text_input(LABELS["Legal POC Email"], key="legal_poc_email")
+with col3:
+    sci_poc_phone = st.text_input(LABELS["Scientific POC Phone"], key="sci_poc_phone", placeholder="+1-555-555-5555")
+    tech_poc_phone = st.text_input(LABELS["Technical POC Phone"], key="tech_poc_phone", placeholder="+1-555-555-5555")
+    legal_poc_phone = st.text_input(LABELS["Legal POC Phone"], key="legal_poc_phone", placeholder="+1-555-555-5555")
 
 st.subheader("Dataset Publication Details")
 title = st.text_input(LABELS["Title"], help="Similar to a manuscript title.", key="title")
@@ -205,11 +212,23 @@ if proposal_type == "New Collection Proposal":
     with col1:
         site_raw = permissible_values.get('primary_site', []) if permissible_values else []
         site_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in site_raw])))
-        extra_data['disease_site'] = st.selectbox(LABELS["disease_site"], options=[""] + site_options, key="disease_site")
+        site_options.append("Other")
+        selected_site = st.selectbox(LABELS["disease_site"], options=[""] + site_options, key="disease_site_sb")
+        if selected_site == "Other":
+            other_site = st.text_input("Please specify other primary disease site", key="other_disease_site")
+            extra_data['disease_site'] = f"Other - {other_site}" if other_site else ""
+        else:
+            extra_data['disease_site'] = selected_site
     with col2:
         diag_raw = permissible_values.get('primary_diagnosis', []) if permissible_values else []
         diag_options = sorted(list(set([v['value'] if isinstance(v, dict) else str(v) for v in diag_raw])))
-        extra_data['diagnosis'] = st.selectbox(LABELS["diagnosis"], options=[""] + diag_options, key="diagnosis")
+        diag_options.append("Other")
+        selected_diag = st.selectbox(LABELS["diagnosis"], options=[""] + diag_options, key="diagnosis_sb")
+        if selected_diag == "Other":
+            other_diag = st.text_input("Please specify other histologic diagnosis", key="other_diagnosis")
+            extra_data['diagnosis'] = f"Other - {other_diag}" if other_diag else ""
+        else:
+            extra_data['diagnosis'] = selected_diag
 
     extra_data['image_types'] = st.multiselect(
         LABELS["image_types"],
@@ -329,10 +348,13 @@ if submit_button:
             "Proposal Type": proposal_type,
             "Scientific POC Name": sci_poc_name,
             "Scientific POC Email": sci_poc_email,
+            "Scientific POC Phone": sci_poc_phone,
             "Technical POC Name": tech_poc_name,
             "Technical POC Email": tech_poc_email,
+            "Technical POC Phone": tech_poc_phone,
             "Legal POC Name": legal_poc_name,
             "Legal POC Email": legal_poc_email,
+            "Legal POC Phone": legal_poc_phone,
             "Time Constraints": time_constraints,
             "Title": title,
             "Nickname": nickname,
