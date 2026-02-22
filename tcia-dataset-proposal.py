@@ -70,6 +70,7 @@ LABELS = {
     "Time Constraints": "Are there any time constraints associated with sharing your data set?*",
     "descriptor_publication": "Is there a related dataset descriptor publication? (i.e. Nature Scientific Data article on how to use the dataset)*",
     "additional_publications": "Any additional publications derived from these data?*",
+    "adult_or_childhood_study": "Is this an Adult or Childhood study?*",
     "acknowledgments": "Acknowledgments or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
@@ -308,6 +309,11 @@ with col2:
 
 extra_data['descriptor_publication'] = st.text_area(LABELS['descriptor_publication'], key="descriptor_publication")
 extra_data['additional_publications'] = st.text_area(LABELS['additional_publications'], key="additional_publications")
+extra_data['adult_or_childhood_study'] = st.selectbox(
+    LABELS["adult_or_childhood_study"],
+    options=["", "Adolescent and Young Adult", "Adult", "Pediatric"],
+    key="adult_or_childhood_study"
+)
 extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
 extra_data['why_tcia'] = st.multiselect(
     LABELS["why_tcia"],

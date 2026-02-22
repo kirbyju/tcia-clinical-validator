@@ -242,12 +242,8 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
 
 def reset_app():
     """Reset all session state"""
-    keys_to_keep = []
-    keys_to_remove = [k for k in st.session_state.keys() if k not in keys_to_keep]
-    for key in keys_to_remove:
+    for key in list(st.session_state.keys()):
         del st.session_state[key]
-    st.session_state.phase = 0
-    st.session_state.phase0_step = 'Start'
 
 # Initialize session state
 if 'phase' not in st.session_state:
@@ -400,7 +396,9 @@ if st.session_state.phase == 0:
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
-                        'dataset_abstract': proposal_data.get('Abstract', '')
+                        'dataset_abstract': proposal_data.get('Abstract', ''),
+                        'adult_or_childhood_study': proposal_data.get('adult_or_childhood_study', ''),
+                        'acknowledgements': proposal_data.get('acknowledgments', '')
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -723,6 +721,10 @@ if st.session_state.phase == 0:
                     if st.button("🗑️", key=f"del_inv_{idx}"):
                         st.session_state.metadata['Investigator'].pop(idx)
                         st.rerun()
+
+            if st.button("➡️ All Investigators Added - Proceed to Related Work", use_container_width=True):
+                st.session_state.phase0_step = 'Related_Work'
+                st.rerun()
         
         st.markdown("---")
         st.write("**Add New Investigator:**")
@@ -1210,7 +1212,12 @@ elif st.session_state.phase == 2:
         # Check for missing links
         missing_links = check_missing_links(split_data, schema, relationships)
         # Filter out links to Phase 0 entities as they are handled automatically
-        actual_missing = [l for l in missing_links if l['target_entity'] not in st.session_state.metadata]
+        # AND only report missing links to entities that are actually present in the uploaded data
+        actual_missing = [
+            l for l in missing_links
+            if l['target_entity'] not in st.session_state.metadata
+            and l['target_entity'] in split_data
+        ]
 
         if actual_missing:
             st.warning("⚠️ Some uploaded entities are missing required linkages to each other:")

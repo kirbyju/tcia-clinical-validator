@@ -3008,5 +3008,10 @@
     "Other",
     "Award",
     "Project"
+  ],
+  "adult_or_childhood_study": [
+    "Adolescent and Young Adult",
+    "Adult",
+    "Pediatric"
   ]
 }
