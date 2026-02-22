@@ -71,7 +71,9 @@ LABELS = {
     "descriptor_publication": "Is there a related dataset descriptor publication? (i.e. Nature Scientific Data article on how to use the dataset)*",
     "additional_publications": "Any additional publications derived from these data?*",
     "acknowledgments": "Acknowledgments or funding statements*",
-    "why_tcia": "Why would you like to publish this dataset on TCIA?*"
+    "why_tcia": "Why would you like to publish this dataset on TCIA?*",
+    "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
+    "software_details": "Details*"
 }
 
 IMAGE_FORMATS = [
@@ -233,12 +235,12 @@ if proposal_type == "New Collection Proposal":
 
     extra_data['image_types'] = st.multiselect(
         LABELS["image_types"],
-        options=["MR", "CT", "PET", "Mammograms", "Ultrasound", "Xray", "Radiation Therapy", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"],
+        options=["MR", "CT", "PET", "Mammograms", "Ultrasound", "Xray", "Whole Slide Image", "CODEX", "Single-cell Image", "Photomicrograph", "Microarray", "Multiphoton", "Immunofluorescence", "Other"],
         key="image_types"
     )
     extra_data['supporting_data'] = st.multiselect(
         LABELS["supporting_data"],
-        options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Software / Source Code", "No additional data", "Other"],
+        options=["Clinical", "Image Analyses", "Image Registrations", "Genomics", "Proteomics", "Radiation Therapy Plans/Structures", "No additional data", "Other"],
         key="supporting_data"
     )
 
@@ -259,7 +261,7 @@ if proposal_type == "New Collection Proposal":
         col1, col2 = st.columns([1, 1])
         with col1: st.write(f"Format for **{stype}**:")
         with col2:
-            opts = COMBINED_FORMATS if stype == "Image Analyses" else SUPPORT_FORMATS
+            opts = COMBINED_FORMATS if stype in ["Image Analyses", "Radiation Therapy Plans/Structures"] else SUPPORT_FORMATS
             fmt = st.selectbox(f"Select format for {stype}", options=opts, key=f"fmt_supp_{stype}", label_visibility="collapsed")
             if fmt == "Other":
                 other_fmt = st.text_input(f"Specify other format for {stype}", key=f"other_fmt_supp_{stype}", label_visibility="collapsed")
@@ -292,6 +294,11 @@ else: # Analysis Results
             else:
                 ar_formats.append(f"{dtype} - {fmt}")
     extra_data['file_formats'] = "; ".join(ar_formats)
+
+extra_data['software_code'] = st.radio(LABELS["software_code"], options=["Yes", "No"], index=1, key="software_code")
+if extra_data['software_code'] == "Yes":
+    extra_data['software_details'] = st.text_area(LABELS["software_details"], key="software_details")
+
 # Shared bottom fields
 col1, col2 = st.columns(2)
 with col1:
