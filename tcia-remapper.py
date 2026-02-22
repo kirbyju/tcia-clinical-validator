@@ -407,6 +407,15 @@ if st.session_state.phase == 0:
                     # Update CICADAS abstract
                     st.session_state.cicadas['abstract'] = proposal_data.get('Abstract', '')
 
+                    # Map Software/Source Code to CICADAS external resources
+                    software_info = ""
+                    if proposal_data.get('software_code') == "Yes":
+                        details = proposal_data.get('software_details', '')
+                        software_info = f"Related software/source code: {details}"
+
+                    if software_info:
+                        st.session_state.cicadas['external_resources'] = software_info
+
                     # Map Program (Default to Community)
                     st.session_state.metadata['Program'] = [DEFAULT_PROGRAMS['Community']]
 
@@ -419,7 +428,7 @@ if st.session_state.phase == 0:
 
                     # Map Related Work
                     rel_works = []
-                    for k in ['citation_primary', 'citations_content', 'additional_publications']:
+                    for k in ['citation_primary', 'citations_content', 'additional_publications', 'descriptor_publication']:
                         val = proposal_data.get(k)
                         if val and str(val).strip():
                             rel_works.append({

@@ -33,11 +33,11 @@ Collect Name and Email for three mandatory Points of Contact (POC):
     - Primary disease site/location (from `permissible_values.json`).
     - Histologic diagnosis (from `permissible_values.json`).
     - Image types (MR, CT, PET, etc.).
-    - Supporting data (Clinical, Genomics, etc.).
+    - Supporting data (Clinical, Genomics, Radiation Therapy Plans/Structures, etc.).
+    - Software/Related Resources:Standalone question about source code, Jupyter notebooks, web sites or other software.
     - File formats.
     - Modifications prior to submission.
     - Presence of patient faces.
-    - Exceptions to Open Access Policy.
 - **Adaptive Fields (Analysis Results)**:
     - TCIA collection(s) analyzed.
     - Types of derived data.
