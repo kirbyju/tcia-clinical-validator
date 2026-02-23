@@ -916,7 +916,9 @@ PropDefinitions:
     - Cites
     - IsVersionOf
     - IsDerivedFrom
-    Req: 'No'
+    - Describes
+    - IsDescribedBy
+    Req: 'Yes'
   resource_identifier:
     Desc: Repositories where other publications/datasets are stored, e.g. GDC, PDC
     Req: 'No'
