@@ -33,6 +33,9 @@ Terms:
   Dataset:
     Origin: null
     Value: Dataset
+  Describes:
+    Origin: null
+    Value: Describes
   Dissertation:
     Origin: null
     Value: Dissertation
@@ -42,6 +45,9 @@ Terms:
   IsDerivedFrom:
     Origin: null
     Value: IsDerivedFrom
+  IsDescribedBy:
+    Origin: null
+    Value: IsDescribedBy
   IsVersionOf:
     Origin: null
     Value: IsVersionOf

@@ -6,6 +6,7 @@ import os
 import sys
 import requests
 import zipfile
+import ast
 from io import BytesIO
 import importlib.util
 
@@ -209,23 +210,41 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
                 if not is_required:
                     option_labels = [""] + option_labels
                 
-                # Find index of default value
-                current_val = str(default_val) if default_val else ""
-                try:
-                    default_idx = option_labels.index(current_val)
-                except ValueError:
-                    default_idx = 0
-                
-                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
+                if prop_name == 'adult_or_childhood_study':
+                    # Ensure default_val is a list for multiselect
+                    if not isinstance(default_val, list):
+                        if isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
+                            try:
+                                default_val = ast.literal_eval(default_val)
+                            except:
+                                default_val = [default_val] if default_val else []
+                        else:
+                            default_val = [default_val] if default_val else []
+
+                    selected = st.multiselect(label, options=option_labels, default=default_val, help=help_text, disabled=disabled)
+                else:
+                    # Find index of default value
+                    current_val = str(default_val) if default_val else ""
+                    try:
+                        default_idx = option_labels.index(current_val)
+                    except ValueError:
+                        default_idx = 0
+
+                    selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
                 form_data[prop_name] = selected
             else:
-                if not is_required:
-                    options = [""] + options
-                try:
-                    default_idx = options.index(default_val)
-                except ValueError:
-                    default_idx = 0
-                selected = st.selectbox(label, options=options, index=default_idx, help=help_text, disabled=disabled)
+                if prop_name == 'adult_or_childhood_study':
+                    if not isinstance(default_val, list):
+                        default_val = [default_val] if default_val else []
+                    selected = st.multiselect(label, options=options, default=default_val, help=help_text, disabled=disabled)
+                else:
+                    if not is_required:
+                        options = [""] + options
+                    try:
+                        default_idx = options.index(default_val)
+                    except ValueError:
+                        default_idx = 0
+                    selected = st.selectbox(label, options=options, index=default_idx, help=help_text, disabled=disabled)
                 form_data[prop_name] = selected
         elif "description" in prop_name or "abstract" in prop_name or "acknowledgements" in prop_name:
             form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text, disabled=disabled)
@@ -393,11 +412,18 @@ if st.session_state.phase == 0:
                     proposal_data = import_df.iloc[0].to_dict()
 
                     # Map Dataset
+                    study_val = proposal_data.get('adult_or_childhood_study', '')
+                    if isinstance(study_val, str) and study_val.startswith('[') and study_val.endswith(']'):
+                        try:
+                            study_val = ast.literal_eval(study_val)
+                        except:
+                            pass
+
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
-                        'adult_or_childhood_study': proposal_data.get('adult_or_childhood_study', ''),
+                        'adult_or_childhood_study': study_val,
                         'acknowledgements': proposal_data.get('acknowledgments', '')
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]

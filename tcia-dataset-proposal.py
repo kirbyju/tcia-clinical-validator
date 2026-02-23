@@ -71,6 +71,7 @@ LABELS = {
     "descriptor_publication": "Is there a related dataset descriptor publication? (i.e. Nature Scientific Data article on how to use the dataset)*",
     "additional_publications": "Any additional publications derived from these data?*",
     "adult_or_childhood_study": "Is this an Adult or Childhood study?*",
+    "number_of_subjects": "Approximate number of subjects*",
     "acknowledgments": "Acknowledgments or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
@@ -301,17 +302,19 @@ if extra_data['software_code'] == "Yes":
     extra_data['software_details'] = st.text_area(LABELS["software_details"], key="software_details")
 
 # Shared bottom fields
-col1, col2 = st.columns(2)
+col1, col2, col3 = st.columns(3)
 with col1:
     extra_data['disk_space'] = st.text_input(LABELS["disk_space"], key="disk_space")
 with col2:
+    extra_data['number_of_subjects'] = st.text_input(LABELS["number_of_subjects"], key="number_of_subjects")
+with col3:
     time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
 extra_data['descriptor_publication'] = st.text_area(LABELS['descriptor_publication'], key="descriptor_publication")
 extra_data['additional_publications'] = st.text_area(LABELS['additional_publications'], key="additional_publications")
-extra_data['adult_or_childhood_study'] = st.selectbox(
+extra_data['adult_or_childhood_study'] = st.multiselect(
     LABELS["adult_or_childhood_study"],
-    options=["", "Adolescent and Young Adult", "Adult", "Pediatric"],
+    options=["Adolescent and Young Adult", "Adult", "Pediatric"],
     key="adult_or_childhood_study"
 )
 extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
