@@ -19,6 +19,15 @@ def transform_mdf_to_schema(model, props_defs, terms):
     prop_definitions = props_defs.get('PropDefinitions', {})
     term_definitions = terms.get('Terms', {})
     
+    # First pass: identify primary key for each node
+    node_keys = {}
+    for node_name, node_info in model.get('Nodes', {}).items():
+        for prop_name in node_info.get('Props', []):
+            prop_def = prop_definitions.get(prop_name, {})
+            if prop_def.get('Key') in ['True', 'Yes', True]:
+                node_keys[node_name] = prop_name
+                break
+
     for node_name, node_info in model.get('Nodes', {}).items():
         node_props = []
         for prop_name in node_info.get('Props', []):
@@ -56,6 +65,22 @@ def transform_mdf_to_schema(model, props_defs, terms):
                     enum_values.append(val_info)
                 
                 permissible_values[prop_name] = enum_values
+
+        # Inject linkage properties based on Relationships
+        for rel_name, rel_info in relationships.items():
+            for end in rel_info.get('Ends', []):
+                if end['Src'] == node_name:
+                    dst_node = end['Dst']
+                    dst_key = node_keys.get(dst_node)
+                    if dst_key:
+                        linkage_prop = f"{dst_node.lower()}.{dst_key}"
+                        # Only add if not already present
+                        if not any(p['Property'] == linkage_prop for p in node_props):
+                            node_props.append({
+                                'Property': linkage_prop,
+                                'Description': f"Automatically injected linkage to {dst_node}",
+                                'Required/optional': 'O'
+                            })
                 
         schema[node_name] = node_props
         
