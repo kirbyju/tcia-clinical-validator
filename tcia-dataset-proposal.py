@@ -208,7 +208,6 @@ authors_raw = st.text_area("Example: Smith, John - 0000-0002-1234-5678; Doe, Jan
 abstract = st.text_area(LABELS["Abstract"], help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
 
 st.subheader("Data Collection Details")
-published_elsewhere = st.text_input(LABELS["Published Elsewhere"], help="If so, why publish on TCIA? Do you intend for the original to remain accessible?", key="published_elsewhere")
 
 # Adaptive fields
 extra_data = {}
@@ -302,12 +301,16 @@ if extra_data['software_code'] == "Yes":
     extra_data['software_details'] = st.text_area(LABELS["software_details"], key="software_details")
 
 # Shared bottom fields
-col1, col2, col3 = st.columns(3)
+col1, col2 = st.columns(2)
 with col1:
     extra_data['disk_space'] = st.text_input(LABELS["disk_space"], key="disk_space")
 with col2:
     extra_data['number_of_subjects'] = st.text_input(LABELS["number_of_subjects"], key="number_of_subjects")
-with col3:
+
+col1, col2 = st.columns(2)
+with col1:
+    published_elsewhere = st.text_input(LABELS["Published Elsewhere"], help="If so, why publish on TCIA? Do you intend for the original to remain accessible?", key="published_elsewhere")
+with col2:
     time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
 extra_data['descriptor_publication'] = st.text_area(LABELS['descriptor_publication'], key="descriptor_publication")
