@@ -48,7 +48,7 @@ Collect Name and Email for three mandatory Points of Contact (POC):
 - **Disk Space**: Approximate size.
 - **Time Constraints**: Any deadlines for sharing.
 - **Publications**: Related dataset descriptors or derived publications.
-- **Acknowledgments**: Funding or support statements.
+- **Acknowledgements**: Funding or support statements.
 - **Why TCIA**: Motivation for using TCIA.
 
 ## Output Generation

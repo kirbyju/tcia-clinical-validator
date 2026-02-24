@@ -72,7 +72,7 @@ LABELS = {
     "additional_publications": "Any additional publications derived from these data?*",
     "adult_or_childhood_study": "Is this an Adult or Childhood study?*",
     "number_of_subjects": "Approximate number of subjects*",
-    "acknowledgments": "Acknowledgments or funding statements*",
+    "acknowledgements": "Acknowledgements or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
     "software_details": "Details*"
@@ -317,7 +317,7 @@ extra_data['adult_or_childhood_study'] = st.multiselect(
     options=["Adolescent and Young Adult", "Adult", "Pediatric"],
     key="adult_or_childhood_study"
 )
-extra_data['acknowledgments'] = st.text_area(LABELS["acknowledgments"], key="acknowledgments")
+extra_data['acknowledgements'] = st.text_area(LABELS["acknowledgements"], key="acknowledgements")
 extra_data['why_tcia'] = st.multiselect(
     LABELS["why_tcia"],
     options=["To meet a funding agency's requirements", "To meet a journal's requirements", "To facilitate collaboration", "To facilitate a challenge competition", "Other"],

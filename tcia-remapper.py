@@ -424,7 +424,7 @@ if st.session_state.phase == 0:
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
                         'adult_or_childhood_study': study_val,
-                        'acknowledgements': proposal_data.get('acknowledgments', '')
+                        'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or ''
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 

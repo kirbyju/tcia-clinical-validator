@@ -1,7 +1,7 @@
 PropDefinitions:
   BodyPartExamined:
     Req: 'Yes'
-    Type: String
+    Type: string
   DOI:
     Desc: Where applicable, the digital object identifier for the cited work, by which
       it can be permanently identified, and linked to via the internet.This property
@@ -14,16 +14,16 @@ PropDefinitions:
       Origin: caDSR
       Value: Publication Digital Object Identifier Text
       Version: '1'
-    Type: String
+    Type: string
   DOI_version:
     Req: 'No'
-    Type: String
+    Type: string
   Manufacturer:
     Req: 'No'
-    Type: String
+    Type: string
   ManufacturerModelName:
     Req: 'No'
-    Type: String
+    Type: string
   Modality:
     Desc: Imaging modality
     Req: 'Yes'
@@ -35,8 +35,8 @@ PropDefinitions:
       Origin: caDSR
       Value: Image Series Modality DICOM Modality Type
       Version: '2'
-    Type: String
-  NCBI Taxonomy ID:
+    Type: string
+  NCBI_Taxonomy_ID:
     Desc: A label provided by NCBI Taxonomy Database (https://www.ncbi.nlm.nih.gov/taxonomy/),
       which uniquely identifies group or category, at any level, in a system for classifying
       plants or animals (including humans) providing ranked categories for the classification
@@ -50,33 +50,35 @@ PropDefinitions:
       Origin: caDSR
       Value: Subject Taxonomy NCBI Identifier
       Version: '2'
-    Type: String
+    Type: string
   Patient_age_at_imaging:
     Req: 'No'
-    Type: String
-  PixelSpacing(mm)-Row:
+    Type: string
+  PixelSpacing_Row:
+    Desc: mm
     Req: 'No'
-    Type: String
+    Type: string
   Radiology_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   SeriesDescription:
     Req: 'No'
-    Type: String
-  SliceThickness(mm):
+    Type: string
+  SliceThickness:
+    Desc: mm
     Req: 'No'
-    Type: String
+    Type: string
   SoftwareVersions:
     Req: 'No'
-    Type: String
+    Type: string
   StudyDesc:
     Req: 'No'
-    Type: String
+    Type: string
   acknowledgements:
     Desc: additional acknowledgments
     Req: 'No'
-    Type: String
+    Type: string
   acquisition_method_type:
     Desc: Records the method of acquisition or source for the specimen under consideration
     Req: 'No'
@@ -87,7 +89,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Biospecimen Acquisition Method Type
       Version: '2'
-    Type: String
+    Type: string
   adult_or_childhood_study:
     Desc: Study participants are adult, pediatric, or other
     Req: 'No'
@@ -98,7 +100,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Subject Legal Adult Or Pediatric Study Participant Type
       Version: '2'
-    Type: String
+    Type: string
   age_at_diagnosis:
     Desc: Age at the time of diagnosis expressed in number of days since birth.
     Req: 'Yes'
@@ -108,7 +110,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Subject Age at Diagnosis Integer
       Version: '1'
-    Type: String
+    Type: string
   antibody_name:
     Desc: short descriptive name for this antibody
     Req: 'No'
@@ -119,11 +121,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Antibody Name
       Version: '1'
-    Type: String
+    Type: string
   author_order:
     Desc: Indicates the order in which the authors of the dataset should be listed
     Req: 'No'
-    Type: String
+    Type: string
   authorship:
     Desc: A list of authors for the cited work. More specifically, for publications
       with no more than three authors, authorship quoted in full; for publications
@@ -135,7 +137,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Publication Citation Author List Text
       Version: '1'
-    Type: String
+    Type: string
   catalog_number:
     Desc: catalog number from vendor
     Req: 'No'
@@ -146,11 +148,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Vendor Catalog Number Text
       Version: '1'
-    Type: String
+    Type: string
   channel_id:
     Desc: The unique channel identifier for each channel in this image must match
       the corresponding field in the OME-TIFF header
-    Key: 'Yes'
+    Key: 'True'
     Req: 'Yes'
     Term:
     - Code: '14765171'
@@ -159,20 +161,7 @@ PropDefinitions:
       Origin: caDSR
       Value: OME Tagged Image File Format Channel Identifier
       Version: '1'
-    Type: String
-  channel_metadata_filename:
-    Desc: File name of uploaded companion CSV file containing channel-level metadata
-      details
-    Req: 'Yes'
-    Term:
-    - Code: '7787678'
-      Definition: The full path name of the uploaded file containing channel-level
-        metadata describing the processes used to analyze the experimental data in
-        a study.
-      Origin: caDSR
-      Value: Channel Analysis Metadata Electronic File Name Text
-      Version: '1'
-    Type: String
+    Type: string
   channel_name:
     Desc: Channel label for each channel in this image must match the corresponding
       field in the OME-TIFF header
@@ -184,7 +173,7 @@ PropDefinitions:
       Origin: caDSR
       Value: OME Tagged Image File Format Channel Name
       Version: '1'
-    Type: String
+    Type: string
   clone:
     Desc: Unique clone identifier
     Req: 'No'
@@ -195,7 +184,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Clone Unique Identifier
       Version: '1'
-    Type: String
+    Type: string
   concentration:
     Desc: Final concentration used in experiment
     Req: 'No'
@@ -206,7 +195,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Final Concentration Number
       Version: '1'
-    Type: String
+    Type: string
   cycle_number:
     Desc: 'the cycle # in which the co-listed reagent(s) was(were) used'
     Req: 'No'
@@ -217,26 +206,23 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Reagent Cycle Number Integer
       Version: '1'
-    Type: String
-  data_has_been_de-identified:
+    Type: string
+  data_has_been_de_identified:
     Desc: Flag
     Req: 'Yes'
-    Type: String
-  dataset.dataset_id:
-    Req: 'No'
-    Type: String
+    Type: string
   dataset_abstract:
     Desc: Short description that will identify the dataset on public pages
     Req: 'Yes'
-    Type: String
+    Type: string
   dataset_description:
     Desc: Description of the collection / dataset / study
     Req: 'Yes'
-    Type: String
+    Type: string
   dataset_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   dataset_long_name:
     Desc: descriptive title for the collection/ dataset
     Req: 'Yes'
@@ -247,7 +233,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Study Administration Study Name Text
       Version: '4'
-    Type: String
+    Type: string
   dataset_short_name:
     Desc: abbreviated title for the collection/ dataset
     Req: 'Yes'
@@ -258,7 +244,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Study Administration Study Short Name Text
       Version: '4'
-    Type: String
+    Type: string
   de_identification_method_description:
     Desc: Description of the process of removing potentially identifying data or data
       elements to render data into a form that does not identify individuals and where
@@ -272,7 +258,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Deidentification Method Description Text
       Version: '1'
-    Type: String
+    Type: string
   de_identification_method_type:
     Desc: General description of the de-identification method
     Req: 'No'
@@ -283,7 +269,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Deidentification Method Type
       Version: '1'
-    Type: String
+    Type: string
   de_identification_software:
     Desc: Software that was used to de-identify the images (if used)
     Req: 'No'
@@ -294,11 +280,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Deidentification Software Name Text
       Version: '1'
-    Type: String
+    Type: string
   diagnosis_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   dilution:
     Desc: Final dilution ratio used in experiment
     Req: 'No'
@@ -309,11 +295,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Final Dilution Ratio Number
       Version: '1'
-    Type: String
+    Type: string
   email:
     Desc: The string of characters that represents the electronic mail address of
       a person.
-    Req: 'Yes'
+    Req: 'No'
     Term:
     - Code: '2517550'
       Definition: The string of characters that represents the electronic mail address
@@ -321,7 +307,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Email Address Text
       Version: '1'
-    Type: String
+    Type: string
   embedding_medium:
     Desc: The term which describes the method used to maintain the specimen in a viable
       state.
@@ -333,7 +319,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Specimen Preservation Procedure Type
       Version: '3'
-    Type: String
+    Type: string
   emission_bandwidth:
     Desc: nominal width of emission spectrum (nm)
     Req: 'No'
@@ -344,7 +330,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Emission Bandwidth Number
       Version: '1'
-    Type: String
+    Type: string
   emission_wavelength:
     Desc: center/peak of the emission spectrum (nm)
     Req: 'No'
@@ -355,7 +341,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Assay Emission Wavelength Number
       Version: '1'
-    Type: String
+    Type: string
   ethnicity:
     Desc: An individual's self-described social and cultural grouping, specifically
       whether an individual describes themselves as Hispanic or Latino. The provided
@@ -369,7 +355,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Ethnic Group Category Text
       Version: '2'
-    Type: String
+    Type: string
   excitation_bandwidth:
     Desc: nominal width of excitation spectrum (nm)
     Req: 'No'
@@ -380,7 +366,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Excitation Bandwidth Number
       Version: '1'
-    Type: String
+    Type: string
   excitation_wavelength:
     Desc: center/peak of the excitation spectrum (nm)
     Req: 'No'
@@ -391,7 +377,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Excitation Wavelength Number
       Version: '1'
-    Type: String
+    Type: string
   file_description:
     Desc: Human-readable description of file
     Req: 'No'
@@ -402,13 +388,13 @@ PropDefinitions:
       Origin: caDSR
       Value: Data File Description Text
       Version: '2'
-    Type: String
+    Type: string
   file_id:
     Desc: A file identifier generated by CRDC Submission Portal. This property is
       not included in the downloaded submission template
-    Key: 'Yes'
+    Key: 'True'
     Req: 'Yes'
-    Type: String
+    Type: string
   file_name:
     Desc: Name of file
     Req: 'Yes'
@@ -418,7 +404,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Data File Name Text
       Version: '3'
-    Type: String
+    Type: string
   file_size:
     Desc: File size in bytes
     Req: 'No'
@@ -429,7 +415,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Data File Size Integer
       Version: '2'
-    Type: String
+    Type: string
   file_type:
     Desc: File type from enumerated list
     Req: 'Yes'
@@ -440,7 +426,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Data File Format Type
       Version: '2'
-    Type: String
+    Type: string
   first_name:
     Desc: A word or group of words indicating a person's first (personal or given)
       name; the name that precedes the surname. Synonym = Given Name.> The first or
@@ -454,7 +440,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Given/First Name
       Version: '2'
-    Type: String
+    Type: string
   fluorophore:
     Desc: Fluorescent dye label
     Req: 'No'
@@ -465,7 +451,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Fluorescent Dye Text
       Version: '1'
-    Type: String
+    Type: string
   funding_agency:
     Desc: Funding agency of the requestor study
     Req: 'No'
@@ -475,7 +461,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Funding Agency Organization Name Text
       Version: '2'
-    Type: String
+    Type: string
   funding_source_program_name:
     Desc: The funding source organization/sponsor
     Req: 'No'
@@ -485,10 +471,9 @@ PropDefinitions:
       Origin: caDSR
       Value: Funding Agency Program Name Text
       Version: '2'
-    Type: String
+    Type: string
   grant_id:
     Desc: Grant or contract identifier
-    Key: 'Yes'
     Req: 'No'
     Term:
     - Code: '3434057'
@@ -497,14 +482,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Grant Funding Identifier Number
       Version: '2'
-    Type: String
-  histopathology.histopathology_id:
-    Req: 'No'
-    Type: String
+    Type: string
   histopathology_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   image_modality:
     Req: 'Yes'
     Term:
@@ -515,7 +497,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Image Series Modality DICOM Modality Type
       Version: '2'
-    Type: String
+    Type: string
   imaging_assay_type:
     Desc: Type of imaging assay
     Req: 'Yes'
@@ -527,7 +509,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Assay Technology Type
       Version: '2'
-    Type: String
+    Type: string
   immersion:
     Desc: Immersion medium
     Req: 'No'
@@ -538,7 +520,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Microscope Device Immersion Medium Type
       Version: '1'
-    Type: String
+    Type: string
   institution_name:
     Desc: TBD
     Req: 'No'
@@ -548,14 +530,14 @@ PropDefinitions:
       Origin: caDSR
       Value: Institution Name
       Version: '4'
-    Type: String
+    Type: string
   investigator_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   is_phantom:
     Req: 'Yes'
-    Type: String
+    Type: string
   journal_citation:
     Desc: The name of the journal in which the cited work was published, inclusive
       of the citation itself in terms of journal volume number, part number where
@@ -567,7 +549,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Publication Journal Citation Text
       Version: '1'
-    Type: String
+    Type: string
   lab_test_name:
     Desc: Descriptive name of the lab test or examination used to obtain the measurement
       or finding. Any test normally performed by a clinical laboratory is considered
@@ -583,7 +565,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Lab Test or Examination Name
       Version: '12'
-    Type: String
+    Type: string
   last_name:
     Desc: A means of identifying an individual by using a word or group of words indicating
       a person's last (family) name. Synonym = Last Name, Surname.> The last or family
@@ -597,7 +579,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Family/Last Name
       Version: '2'
-    Type: String
+    Type: string
   lens_numerical_aperture:
     Desc: The numerical aperture of the lens. Floating point value > 0.
     Req: 'No'
@@ -608,7 +590,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Microscope Device Lens Numerical Aperture Float Value
       Version: '1'
-    Type: String
+    Type: string
   license:
     Desc: license under which this collection / dataset / study will be published;
       Official or legal permission to do or own a specified thing.
@@ -620,7 +602,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Data Collection License Type
       Version: '1'
-    Type: String
+    Type: string
   lot:
     Desc: lot number from vendor
     Req: 'No'
@@ -631,7 +613,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Vendor Lot Number Text
       Version: '1'
-    Type: String
+    Type: string
   md5sum:
     Desc: MD5 hex digest for this file
     Req: 'Yes'
@@ -641,7 +623,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Data File MD5 Checksum Text
       Version: '2'
-    Type: String
+    Type: string
   metal_isotope_element:
     Desc: Element abbreviation
     Req: 'No'
@@ -658,7 +640,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Isotope Element Number Identifier
       Version: '1'
-    Type: String
+    Type: string
   metastasis_anatomic_site:
     Req: 'No'
     Term:
@@ -669,7 +651,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Disease Metastasis Anatomic Site Uberon Identifier
       Version: '1'
-    Type: String
+    Type: string
   middle_name:
     Desc: A means of identifying an individual by using a word or group of words indicating
       a person's middle name.> The middle name of the person responsible for the conduct
@@ -682,14 +664,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Middle Name
       Version: '2'
-    Type: String
+    Type: string
   multiplex_image_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
-  multiplex_imaging.multiplex_image_id:
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   nominal_magnification:
     Desc: The magnification of the lens as specified by the manufacturer - i.e. '60'
       is a 60X lens. floating point value > 1(no units)
@@ -701,7 +680,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Microscope Device Nominal Magnification Float Value
       Version: '1'
-    Type: String
+    Type: string
   objective:
     Desc: An_objective_is an optical element that gathers light from an object being
       observed and_focuses_the_light rays_from it to produce a_real image_of the object.
@@ -713,7 +692,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Microscope Device Objective Lens Text
       Version: '1'
-    Type: String
+    Type: string
   oligo_barcode_lower_strand:
     Desc: DNA barcode used for labeling
     Req: 'No'
@@ -724,7 +703,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Oligonucleotide Barcode Lower Strand Text
       Version: '1'
-    Type: String
+    Type: string
   oligo_barcode_upper_strand:
     Desc: DNA barcode used for labeling
     Req: 'No'
@@ -735,7 +714,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Oligonucleotide Barcode Upper Strand Text
       Version: '1'
-    Type: String
+    Type: string
   organization_name:
     Desc: The text that describes the distinguishable characteristics of a person
       in a formal association with a group or organization.
@@ -746,7 +725,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Organization Name
       Version: '3'
-    Type: String
+    Type: string
   person_orcid:
     Desc: A persistent unique digital identifier assigned to a person by the Open
       Researcher and Contributor ID (ORCID) organization.> A persistent unique digital
@@ -760,7 +739,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Person ORCID Text
       Version: '3'
-    Type: String
+    Type: string
   primary_diagnosis:
     Desc: Text term used to describe the patient's histologic diagnosis, as described
       by the World Health Organization's (WHO) International Classification of Diseases
@@ -774,7 +753,7 @@ PropDefinitions:
       Origin: caDSR
       Value: ICD-O Primary Disease Diagnosis Type
       Version: '1'
-    Type: String
+    Type: string
   primary_site:
     Desc: The text term used to describe the primary site of disease, as categorized
       by the World Health Organization's (WHO) International Classification of Diseases
@@ -790,39 +769,33 @@ PropDefinitions:
       Origin: caDSR
       Value: ICD-O Primary Anatomic Site Category
       Version: '1'
-    Type: String
-  procedure.procedure_id:
-    Req: 'No'
-    Type: String
+    Type: string
   procedure_date:
     Req: 'Yes'
     Term:
     - Code: '3434493'
       Definition: The date of an imaging procedure.
       Origin: caDSR
-      Value: Imaging Technique Occurrence Date
+      Value: Imaging Procedure Occurrence Date
       Version: '2'
-    Type: String
+    Type: string
   procedure_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
-  program.program_id:
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   program_external_url:
     Desc: The external url to which users should be directed in order to learn more
       about the program.
     Req: 'No'
-    Type: String
+    Type: string
   program_full_description:
     Desc: A more detailed, multiple sentence description of the program.
     Req: 'No'
-    Type: String
+    Type: string
   program_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   program_name:
     Desc: The name of the program under which related studies will be grouped, in
       full text and unabbreviated form, exactly as it will be displayed within the
@@ -836,11 +809,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Research Activity Program Name Text
       Version: '3'
-    Type: String
+    Type: string
   program_short_description:
     Desc: An abbreviated, single sentence description of the program.
     Req: 'No'
-    Type: String
+    Type: string
   program_short_name:
     Desc: An acronym or abbreviated form of the title of a broad framework of goals
       under which related projects or other research activities are grouped. Example
@@ -854,7 +827,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Program Short Name Text
       Version: '3'
-    Type: String
+    Type: string
   publication_type:
     Desc: In the DataCite Metadata Schema 4.6 (released December 2024), the following
       publication-related resource types are listed.
@@ -884,7 +857,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Image Processing Pyramid Representation True False Indicator
       Version: '1'
-    Type: String
+    Type: string
   race:
     Desc: An arbitrary classification of a taxonomic group that is a division of a
       species. It usually arises as a consequence of geographical isolation within
@@ -900,15 +873,12 @@ PropDefinitions:
       Origin: caDSR
       Value: Race Category Text
       Version: '1'
-    Type: String
-  radiology.radiology_id:
-    Req: 'No'
-    Type: String
+    Type: string
   related_work_id:
     Desc: primary key
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   relationship_type:
     Desc: A set of DOI relationship types based on the DataCite Metadata Schema.
     Enum:
@@ -922,7 +892,7 @@ PropDefinitions:
   resource_identifier:
     Desc: Repositories where other publications/datasets are stored, e.g. GDC, PDC
     Req: 'No'
-    Type: String
+    Type: string
   role:
     Desc: The text that describes the distinguishable characteristics of the action
       or activity assigned to.
@@ -935,13 +905,12 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Affiliation Role Text Type
       Version: '2'
-    Type: String
+    Type: string
   ror_id:
     Desc: The Research Organization Registry (ROR) is a global, community-led registry
       of open persistent identifiers for research organizations. (https://ror.org/)
-    Key: 'Yes'
     Req: 'No'
-    Type: String
+    Type: string
   rrid_identifier:
     Desc: Research Resource Identifier
     Req: 'No'
@@ -951,7 +920,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Research Activity Research Resource Identifier
       Version: '1'
-    Type: String
+    Type: string
   sex_at_birth:
     Desc: A textual description of a person's sex at birth.
     Req: 'Yes'
@@ -961,7 +930,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Person Sex at Birth Category
       Version: '3'
-    Type: String
+    Type: string
   staining_method:
     Desc: Any of the various methods that use a dye, reagent, or other material for
       producing coloration in tissues or microorganisms for microscopic examination.
@@ -974,7 +943,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Assay Technology Type
       Version: '2'
-    Type: String
+    Type: string
   sub_cycle_number:
     Desc: 'sub-cycle #'
     Req: 'No'
@@ -985,14 +954,11 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Reagent Sub-Cycle Number Integer
       Version: '1'
-    Type: String
-  subject.subject_id:
-    Req: 'No'
-    Type: String
+    Type: string
   subject_id:
-    Key: 'Yes'
-    Req: 'No'
-    Type: String
+    Key: 'True'
+    Req: 'Yes'
+    Type: string
   target_name:
     Desc: short descriptive name (abbreviation) for this target (antigen)
     Req: 'No'
@@ -1004,7 +970,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Multiplex Imaging Target Antigen Name
       Version: '1'
-    Type: String
+    Type: string
   test_result:
     Desc: The text term used to describe the result of the molecular test. If the
       test result was a numeric value see test_value.
@@ -1015,7 +981,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Molecular Laboratory Procedure Outcome
       Version: '1'
-    Type: String
+    Type: string
   tissue_fixative:
     Desc: A compound that preserves tissues and cells for microscopic study.
     Req: 'Yes'
@@ -1026,7 +992,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Specimen Fixative Type
       Version: '4'
-    Type: String
+    Type: string
   title:
     Desc: The full title of the publication stated exactly as it appears on the published
       work.
@@ -1037,7 +1003,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Publication Title Text
       Version: '1'
-    Type: String
+    Type: string
   tumor_tissue_type:
     Desc: Text that describes the kind of disease present in the tumor specimen as
       related to a specific timepoint (add rows to select multiple values along with
@@ -1050,7 +1016,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Tumor Tissue Disease Description Type
       Version: '1'
-    Type: String
+    Type: string
   vital_status:
     Desc: The survival state of the person registered on the protocol.
     Req: 'Yes'
@@ -1061,7 +1027,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Participant Vital Status Type
       Version: '1'
-    Type: String
+    Type: string
   working_distance:
     Desc: The working distance of the lens, expressed as a floating point number.
       Floating point > 0. Size needs to be specified in microns (um)
@@ -1073,7 +1039,7 @@ PropDefinitions:
       Origin: caDSR
       Value: Microscope Device Working Distance Float Value
       Version: '1'
-    Type: String
+    Type: string
   year_of_publication:
     Desc: The year in which the cited work was published.
     Req: 'No'
@@ -1084,4 +1050,4 @@ PropDefinitions:
       Origin: caDSR
       Value: Publication Year Date
       Version: '1'
-    Type: String
+    Type: string

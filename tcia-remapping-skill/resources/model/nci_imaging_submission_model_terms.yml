@@ -62,7 +62,7 @@ Terms:
     Origin: caDSR
     Value: Image Series Modality DICOM Modality Type
     Version: '2'
-  NCBI Taxonomy ID:
+  NCBI_Taxonomy_ID:
     Code: '10543100'
     Definition: The unique numerical identifier of a subject's organismal classification
       as captured in the National Center for Biotechnology Information (NCBI) Taxonomy
@@ -124,13 +124,6 @@ Terms:
       OME TIFF channel used in multiplex imaging.
     Origin: caDSR
     Value: OME Tagged Image File Format Channel Identifier
-    Version: '1'
-  channel_metadata_filename:
-    Code: '7787678'
-    Definition: The full path name of the uploaded file containing channel-level metadata
-      describing the processes used to analyze the experimental data in a study.
-    Origin: caDSR
-    Value: Channel Analysis Metadata Electronic File Name Text
     Version: '1'
   channel_name:
     Code: '14765172'
@@ -473,7 +466,7 @@ Terms:
     Code: '3434493'
     Definition: The date of an imaging procedure.
     Origin: caDSR
-    Value: Imaging Technique Occurrence Date
+    Value: Imaging Procedure Occurrence Date
     Version: '2'
   program_name:
     Code: '11444542'

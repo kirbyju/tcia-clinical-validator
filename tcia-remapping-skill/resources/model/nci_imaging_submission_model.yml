@@ -12,7 +12,6 @@ Nodes:
     - funding_agency
     - funding_source_program_name
     - grant_id
-    - program.program_id
     Tags:
       assignment: core
       category: study
@@ -27,7 +26,6 @@ Nodes:
     - metastasis_anatomic_site
     - primary_diagnosis
     - primary_site
-    - subject.subject_id
     Tags:
       assignment: core
       category: case
@@ -37,8 +35,7 @@ Nodes:
       template: 'Yes'
   File:
     Props:
-    - data_has_been_de-identified
-    - dataset.dataset_id
+    - data_has_been_de_identified
     - de_identification_method_description
     - de_identification_method_type
     - de_identification_software
@@ -47,13 +44,8 @@ Nodes:
     - file_name
     - file_size
     - file_type
-    - histopathology.histopathology_id
     - license
     - md5sum
-    - multiplex_imaging.multiplex_image_id
-    - procedure.procedure_id
-    - radiology.radiology_id
-    - subject.subject_id
     Tags:
       assignment: core
       category: data file
@@ -70,7 +62,6 @@ Nodes:
     - lens_numerical_aperture
     - nominal_magnification
     - objective
-    - procedure.procedure_id
     - staining_method
     - tissue_fixative
     - tumor_tissue_type
@@ -83,7 +74,6 @@ Nodes:
   Investigator:
     Props:
     - author_order
-    - dataset.dataset_id
     - email
     - first_name
     - investigator_id
@@ -117,7 +107,6 @@ Nodes:
     - fluorophore
     - lot
     - metal_isotope_element
-    - multiplex_imaging.multiplex_image_id
     - oligo_barcode_lower_strand
     - oligo_barcode_upper_strand
     - rrid_identifier
@@ -132,7 +121,6 @@ Nodes:
   Multiplex_Imaging:
     Props:
     - acquisition_method_type
-    - channel_metadata_filename
     - embedding_medium
     - imaging_assay_type
     - immersion
@@ -140,7 +128,6 @@ Nodes:
     - multiplex_image_id
     - nominal_magnification
     - objective
-    - procedure.procedure_id
     - pyramid
     - staining_method
     - tissue_fixative
@@ -158,7 +145,6 @@ Nodes:
     - lab_test_name
     - procedure_date
     - procedure_id
-    - subject.subject_id
     - test_result
     Tags:
       assignment: core
@@ -190,14 +176,13 @@ Nodes:
     - ManufacturerModelName
     - Modality
     - Patient_age_at_imaging
-    - PixelSpacing(mm)-Row
+    - PixelSpacing_Row
     - Radiology_id
     - SeriesDescription
-    - SliceThickness(mm)
+    - SliceThickness
     - SoftwareVersions
     - StudyDesc
     - is_phantom
-    - procedure.procedure_id
     Tags:
       assignment: core
       category: data file
@@ -209,7 +194,6 @@ Nodes:
     - DOI
     - DOI_version
     - authorship
-    - dataset.dataset_id
     - journal_citation
     - publication_type
     - related_work_id
@@ -226,8 +210,7 @@ Nodes:
       template: 'Yes'
   Subject:
     Props:
-    - NCBI Taxonomy ID
-    - dataset.dataset_id
+    - NCBI_Taxonomy_ID
     - ethnicity
     - race
     - sex_at_birth
@@ -242,71 +225,68 @@ Nodes:
       template: 'Yes'
 Relationships:
   of_Dataset:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Program
-      Props: null
-      Src: Dataset
-    Mul: Unknown
-    Props: null
-  of_Diagnosis:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Subject
-      Props: null
-      Src: Diagnosis
-    Mul: Unknown
-    Props: null
-  of_File:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Subject
-      Props: null
-      Src: File
-    - Dst: Dataset
-      Props: null
-      Src: File
-    - Dst: Procedure
-      Props: null
-      Src: File
-    - Dst: Radiology
-      Props: null
-      Src: File
-    - Dst: Histopathology
-      Props: null
-      Src: File
-    Mul: Unknown
-    Props: null
-  of_Investigator:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Dataset
-      Props: null
-      Src: Investigator
-    Mul: Unknown
-    Props: null
-  of_Procedure:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Subject
-      Props: null
-      Src: Procedure
-    Mul: Unknown
-    Props: null
-  of_Related_Work:
-    Desc: Obtained from node.property
-    Ends:
-    - Dst: Dataset
-      Props: null
-      Src: Related_Work
-    Mul: Unknown
-    Props: null
-  of_Subject:
-    Desc: Obtained from node.property
+    Desc: Data of Dataset
     Ends:
     - Dst: Dataset
       Props: null
       Src: Subject
-    Mul: Unknown
+    - Dst: Dataset
+      Props: null
+      Src: Investigator
+    - Dst: Dataset
+      Props: null
+      Src: Related_Work
+    Mul: many_to_one
+    Props: null
+  of_Multiplex_Channels:
+    Desc: Data of Multiplex_Channels
+    Ends:
+    - Dst: Multiplex_Channels
+      Props: null
+      Src: Multiplex_Imaging
+    Mul: one_to_many
+    Props: null
+  of_Multiplex_Imaging:
+    Desc: Data of Multiplex_Imaging
+    Ends:
+    - Dst: Multiplex_Imaging
+      Props: null
+      Src: File
+    Mul: many_to_one
+    Props: null
+  of_Procedure:
+    Desc: Data of Procedure
+    Ends:
+    - Dst: Procedure
+      Props: null
+      Src: File
+    - Dst: Procedure
+      Props: null
+      Src: Diagnosis
+    Mul: many_to_one
+    Props: null
+  of_Program:
+    Desc: Data of Program
+    Ends:
+    - Dst: Program
+      Props: null
+      Src: Dataset
+    Mul: many_to_one
+    Props: null
+  of_Radiology:
+    Desc: Data of Radiology
+    Ends:
+    - Dst: Radiology
+      Props: null
+      Src: File
+    Mul: many_to_one
+    Props: null
+  of_Subject:
+    Desc: Data of Subject
+    Ends:
+    - Dst: Subject
+      Props: null
+      Src: Procedure
+    Mul: many_to_one
     Props: null
 Version: 0.0.2
