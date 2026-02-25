@@ -958,7 +958,7 @@ if st.session_state.phase == 0:
                             # Use short_name or first ID found as proxy for linkage
                             link_val = dst_meta[0].get(f"{dst_lower}_short_name") or dst_meta[0].get(f"{dst_lower}_id")
                             if link_val:
-                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].startswith(f"{dst_lower}.")), None)
+                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].lower().startswith(f"{dst_lower}.")), None)
                                 if linkage_prop:
                                     for item in processed_data:
                                         if not item.get(linkage_prop):
@@ -966,8 +966,12 @@ if st.session_state.phase == 0:
 
             metadata_to_write[entity_name] = processed_data
 
+        nickname_prefix = ""
+        if st.session_state.metadata.get('Dataset') and st.session_state.metadata['Dataset'][0].get('dataset_short_name'):
+            nickname_prefix = st.session_state.metadata['Dataset'][0]['dataset_short_name']
+
         for entity_name, data in metadata_to_write.items():
-            filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir)
+            filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir, filename_prefix=nickname_prefix)
             if filepath:
                 generated_files_map[entity_name] = filepath
         st.session_state.generated_tsv_files = list(generated_files_map.values())
@@ -1229,7 +1233,7 @@ elif st.session_state.phase == 2:
                             dst_lower = end['Dst'].lower()
                             link_val = dst_meta[0].get(f"{dst_lower}_short_name") or dst_meta[0].get(f"{dst_lower}_id")
                             if link_val:
-                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].startswith(f"{dst_lower}.")), None)
+                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].lower().startswith(f"{dst_lower}.")), None)
                                 if linkage_prop and linkage_prop not in entity_df.columns:
                                     entity_df[linkage_prop] = link_val
         

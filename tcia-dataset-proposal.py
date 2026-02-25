@@ -205,7 +205,13 @@ authors_raw = st.text_area("Example: Smith, John - 0000-0002-1234-5678; Doe, Jan
                            help="List authors one per line or separated by semicolons.",
                            key="authors_raw_input")
 
-abstract = st.text_area(LABELS["Abstract"], help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
+st.markdown(f"**{LABELS['Abstract']}**")
+st.info("""Provide a brief overview of the dataset under 1000 characters, including:
+1. Number of subjects
+2. Types of imaging data included
+3. Types of non-imaging supporting data (e.g., image classifications, segmentations, demographics, treatment details, outcomes)
+4. Potential research applications of the dataset.""")
+abstract = st.text_area(LABELS["Abstract"], label_visibility="collapsed", help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
 
 st.subheader("Data Collection Details")
 
