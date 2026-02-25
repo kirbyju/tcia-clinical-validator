@@ -73,7 +73,7 @@ def transform_mdf_to_schema(model, props_defs, terms):
                     dst_node = end['Dst']
                     dst_key = node_keys.get(dst_node)
                     if dst_key:
-                        linkage_prop = f"{dst_node}.{dst_key}"
+                        linkage_prop = f"{dst_node.lower()}.{dst_key}"
                         # Only add if not already present
                         if not any(p['Property'] == linkage_prop for p in node_props):
                             node_props.append({

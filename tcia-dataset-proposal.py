@@ -145,7 +145,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 st.markdown(
     """
     <div style="display: flex; align-items: center; margin-bottom: 20px;">
-        <img src="https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png" style="height: 50px; margin-right: 15px;">
+        <img src="https://www.cancerimagingarchive.net/wp-content/uploads/2021/06/TCIA-Logo-01.png" style="height: 75px; margin-right: 15px;">
         <h1 style="margin: 0;">Dataset Proposal Form</h1>
     </div>
     """,
@@ -205,12 +205,14 @@ authors_raw = st.text_area("Example: Smith, John - 0000-0002-1234-5678; Doe, Jan
                            help="List authors one per line or separated by semicolons.",
                            key="authors_raw_input")
 
-st.markdown(f"**{LABELS['Abstract']}**")
-st.info("""Provide a brief overview of the dataset under 1000 characters, including:
+st.write(f"**{LABELS['Abstract']}**")
+st.markdown("""
+Provide a brief overview of the dataset under 1000 characters, including:
 1. Number of subjects
 2. Types of imaging data included
 3. Types of non-imaging supporting data (e.g., image classifications, segmentations, demographics, treatment details, outcomes)
-4. Potential research applications of the dataset.""")
+4. Potential research applications of the dataset.
+""")
 abstract = st.text_area(LABELS["Abstract"], label_visibility="collapsed", help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
 
 st.subheader("Data Collection Details")
