@@ -98,7 +98,7 @@ def split_data_by_schema(df, column_mapping, schema):
     
     return results
 
-def write_metadata_tsv(entity_name, data, schema, output_dir='.'):
+def write_metadata_tsv(entity_name, data, schema, output_dir='.', filename_prefix=''):
     """
     data: list of dicts or a single dict
     schema: the full schema dict
@@ -106,18 +106,30 @@ def write_metadata_tsv(entity_name, data, schema, output_dir='.'):
     if isinstance(data, dict):
         data = [data]
 
-    properties = [p['Property'] for p in schema.get(entity_name, [])]
-    if not properties:
+    all_props = [p['Property'] for p in schema.get(entity_name, [])]
+    if not all_props:
         return None
 
+    # Sort columns to match GitHub templates:
+    # 1. type (handled separately)
+    # 2. Linkage properties (those with .) sorted DESCENDING
+    # 3. Regular properties sorted ASCENDING
+    linkage_props = sorted([p for p in all_props if "." in p], reverse=True)
+    regular_props = sorted([p for p in all_props if "." not in p])
+    properties = linkage_props + regular_props
+
     df = pd.DataFrame(data)
-    # Ensure all columns exist and are in order
+    # Ensure all columns exist
     for prop in properties:
         if prop not in df.columns:
             df[prop] = None
 
+    # Reorder and add 'type'
     df = df[properties]
-    filename = f"{entity_name.lower()}.tsv"
+    df.insert(0, 'type', entity_name)
+
+    prefix = f"{filename_prefix}_" if filename_prefix else ""
+    filename = f"{prefix}{entity_name.lower()}.tsv"
     filepath = os.path.join(output_dir, filename)
     df.to_csv(filepath, sep='\t', index=False)
     return filepath
