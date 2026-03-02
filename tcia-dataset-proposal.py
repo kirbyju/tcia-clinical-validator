@@ -75,7 +75,10 @@ LABELS = {
     "acknowledgements": "Acknowledgements or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
-    "software_details": "Details*"
+    "software_details": "Details*",
+    "provide_full_description": "Do you want to provide a full dataset description or pre-print?",
+    "dataset_description": "Full Dataset Description",
+    "description_file": "Upload Pre-print or Full Description (PDF or Word)"
 }
 
 IMAGE_FORMATS = [
@@ -214,6 +217,17 @@ Provide a brief overview of the dataset under 1000 characters, including:
 4. Potential research applications of the dataset.
 """)
 abstract = st.text_area(LABELS["Abstract"], label_visibility="collapsed", help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
+
+# Full Dataset Description Section
+st.write(f"**{LABELS['provide_full_description']}**")
+st.markdown("This helps reduce the number of questions that may arise during the Advisory Group review process. [CICADAS](https://cancerimagingarchive.net/cicadas) formatting is preferred.")
+provide_full_desc = st.radio(LABELS["provide_full_description"], options=["No", "Yes"], index=0, key="provide_full_desc", label_visibility="collapsed")
+
+full_description = ""
+description_file = None
+if provide_full_desc == "Yes":
+    full_description = st.text_area(LABELS["dataset_description"], help="Paste your full dataset description or pre-print text here.", height=300, key="full_description_input")
+    description_file = st.file_uploader(LABELS["description_file"], type=["pdf", "docx", "doc"], key="description_file_input")
 
 st.subheader("Data Collection Details")
 
@@ -388,7 +402,9 @@ if submit_button:
             "Nickname": nickname,
             "Authors": authors_raw,
             "Abstract": abstract,
-            "Published Elsewhere": published_elsewhere
+            "Published Elsewhere": published_elsewhere,
+            "Provide Full Description": provide_full_desc,
+            "Dataset Description": full_description
         }
         all_responses.update(extra_data)
 
@@ -405,6 +421,8 @@ if submit_button:
         table.style = 'Table Grid'
 
         for key, value in all_responses.items():
+            if key == "Dataset Description":
+                continue
             label = LABELS.get(key, key)
             row_cells = table.add_row().cells
             row_cells[0].text = label
@@ -418,6 +436,14 @@ if submit_button:
             for paragraph in row_cells[0].paragraphs:
                 for run in paragraph.runs:
                     run.bold = True
+
+        if full_description:
+            doc.add_page_break()
+            doc.add_heading("Full Dataset Description", level=1)
+            # Add text preserving paragraphs
+            for p_text in full_description.split('\n'):
+                if p_text.strip():
+                    doc.add_paragraph(p_text)
 
         docx_buffer = io.BytesIO()
         doc.save(docx_buffer)
@@ -487,6 +513,8 @@ if submit_button:
             zip_file.writestr(docx_name, docx_buffer.getvalue())
             if pdf_success:
                 zip_file.writestr(pdf_name, pdf_buffer.getvalue())
+            if description_file:
+                zip_file.writestr(description_file.name, description_file.getvalue())
         zip_buffer.seek(0)
 
         # Store in session state for later use in email and to persist buttons
