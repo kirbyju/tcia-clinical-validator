@@ -229,6 +229,8 @@ if provide_full_desc == "Yes":
     full_description = st.text_area(LABELS["dataset_description"], help="Paste your full dataset description or pre-print text here.", height=300, key="full_description_input")
     description_file = st.file_uploader(LABELS["description_file"], type=["pdf", "docx", "doc"], key="description_file_input")
 
+
+
 st.subheader("Data Collection Details")
 
 # Adaptive fields
