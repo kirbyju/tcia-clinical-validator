@@ -423,13 +423,15 @@ if st.session_state.phase == 0:
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
+                        'dataset_description': proposal_data.get('Dataset Description', ''),
                         'adult_or_childhood_study': study_val,
                         'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or ''
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
-                    # Update CICADAS abstract
+                    # Update CICADAS fields
                     st.session_state.cicadas['abstract'] = proposal_data.get('Abstract', '')
+                    st.session_state.cicadas['introduction'] = proposal_data.get('Dataset Description', '')
 
                     # Map Software/Source Code to CICADAS external resources
                     software_info = ""
