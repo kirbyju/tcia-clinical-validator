@@ -68,17 +68,13 @@ LABELS = {
     "image_records": "Do you have records to indicate exactly which TCIA images analyzed?*",
     "disk_space": "Approximate disk space required*",
     "Time Constraints": "Are there any time constraints associated with sharing your data set?*",
-    "descriptor_publication": "Is there a related dataset descriptor publication? (i.e. Nature Scientific Data article on how to use the dataset)*",
-    "additional_publications": "Any additional publications derived from these data?*",
+    "manuscripts": "Are there any manuscripts or preprints that might help us better understand your dataset?",
     "adult_or_childhood_study": "Is this an Adult or Childhood study?*",
     "number_of_subjects": "Approximate number of subjects*",
     "acknowledgements": "Acknowledgements or funding statements*",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
-    "software_details": "Details*",
-    "provide_full_description": "Do you want to provide a full dataset description or pre-print?",
-    "dataset_description": "Full Dataset Description",
-    "description_file": "Upload Pre-print or Full Description (PDF or Word)"
+    "software_details": "Details*"
 }
 
 IMAGE_FORMATS = [
@@ -218,16 +214,50 @@ Provide a brief overview of the dataset under 1000 characters, including:
 """)
 abstract = st.text_area(LABELS["Abstract"], label_visibility="collapsed", help="Focus on describing the dataset itself.", max_chars=1000, key="abstract")
 
-# Full Dataset Description Section
-st.write(f"**{LABELS['provide_full_description']}**")
-st.markdown("This helps reduce the number of questions that may arise during the Advisory Group review process. [CICADAS](https://cancerimagingarchive.net/cicadas) formatting is preferred.")
-provide_full_desc = st.radio(LABELS["provide_full_description"], options=["No", "Yes"], index=0, key="provide_full_desc", label_visibility="collapsed")
+# Manuscripts Section
+st.write(f"**{LABELS['manuscripts']}**")
+st.markdown("""
+We highly encourage "data descriptor" pre-prints published on [arxiv.org](https://arxiv.org/) that are focused on the contents of the dataset (not scientific advances) with [CICADAS](https://cancerimagingarchive.net/cicadas) formatting preferred.
+""")
+has_manuscripts = st.radio(LABELS["manuscripts"], options=["No", "Yes"], index=0, key="has_manuscripts", label_visibility="collapsed")
 
-full_description = ""
-description_file = None
-if provide_full_desc == "Yes":
-    full_description = st.text_area(LABELS["dataset_description"], help="Paste your full dataset description or pre-print text here.", height=300, key="full_description_input")
-    description_file = st.file_uploader(LABELS["description_file"], type=["pdf", "docx", "doc"], key="description_file_input")
+if 'manuscript_list' not in st.session_state:
+    st.session_state.manuscript_list = []
+
+if has_manuscripts == "Yes":
+    # Display existing manuscripts
+    for idx, ms in enumerate(st.session_state.manuscript_list):
+        with st.container(border=True):
+            col_info, col_del = st.columns([6, 1])
+            with col_info:
+                source_val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
+                st.write(f"**{ms['category']}**: {source_val}")
+            with col_del:
+                if st.button("🗑️", key=f"del_ms_{idx}"):
+                    st.session_state.manuscript_list.pop(idx)
+                    st.rerun()
+
+    # Add new manuscript
+    with st.expander("➕ Add a Manuscript/Preprint"):
+        ms_category = st.selectbox("Category", options=["Dataset Descriptor", "Regular manuscript"], key="ms_cat_new")
+        ms_type = st.radio("Source", options=["URL", "Upload File"], key="ms_type_new")
+
+        if ms_type == "URL":
+            ms_url = st.text_input("Enter URL", key="ms_url_new", placeholder="https://doi.org/10.1101/...")
+            if st.button("Add URL to List"):
+                if ms_url:
+                    st.session_state.manuscript_list.append({'category': ms_category, 'type': 'URL', 'url': ms_url})
+                    st.rerun()
+                else:
+                    st.error("Please provide a URL.")
+        else:
+            ms_file = st.file_uploader("Upload PDF or Word document", type=["pdf", "docx", "doc"], key="ms_file_new")
+            if st.button("Add File to List"):
+                if ms_file:
+                    st.session_state.manuscript_list.append({'category': ms_category, 'type': 'File', 'file': ms_file})
+                    st.rerun()
+                else:
+                    st.error("Please upload a file.")
 
 
 
@@ -337,8 +367,6 @@ with col1:
 with col2:
     time_constraints = st.text_input(LABELS["Time Constraints"], key="time_constraints")
 
-extra_data['descriptor_publication'] = st.text_area(LABELS['descriptor_publication'], key="descriptor_publication")
-extra_data['additional_publications'] = st.text_area(LABELS['additional_publications'], key="additional_publications")
 extra_data['adult_or_childhood_study'] = st.multiselect(
     LABELS["adult_or_childhood_study"],
     options=["Adolescent and Young Adult", "Adult", "Pediatric"],
@@ -388,6 +416,16 @@ if submit_button:
             st.write(f"- {field}")
     else:
         # Prepare data for files
+        # Serialize manuscripts for TSV
+        ms_summary = []
+        for ms in st.session_state.manuscript_list:
+            ms_entry = {
+                'category': ms['category'],
+                'type': ms['type'],
+                'value': ms['url'] if ms['type'] == 'URL' else ms['file'].name
+            }
+            ms_summary.append(ms_entry)
+
         all_responses = {
             "Proposal Type": proposal_type,
             "Scientific POC Name": sci_poc_name,
@@ -405,13 +443,13 @@ if submit_button:
             "Authors": authors_raw,
             "Abstract": abstract,
             "Published Elsewhere": published_elsewhere,
-            "Provide Full Description": provide_full_desc,
-            "Dataset Description": full_description
+            "Manuscripts": json.dumps(ms_summary)
         }
         all_responses.update(extra_data)
 
         # Generate TSV
         tsv_buffer = io.StringIO()
+        # Drop complex objects if any remain, though here it should be fine
         df = pd.DataFrame([all_responses])
         df.to_csv(tsv_buffer, sep='\t', index=False)
 
@@ -423,29 +461,29 @@ if submit_button:
         table.style = 'Table Grid'
 
         for key, value in all_responses.items():
-            if key == "Dataset Description":
-                continue
-            label = LABELS.get(key, key)
-            row_cells = table.add_row().cells
-            row_cells[0].text = label
-
-            if isinstance(value, list):
-                row_cells[1].text = ", ".join(map(str, value))
+            if key == "Manuscripts":
+                label = "Manuscripts/Preprints"
+                row_cells = table.add_row().cells
+                row_cells[0].text = label
+                ms_text = ""
+                for ms in st.session_state.manuscript_list:
+                    val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
+                    ms_text += f"- [{ms['category']}] {val}\n"
+                row_cells[1].text = ms_text.strip()
             else:
-                row_cells[1].text = str(value)
+                label = LABELS.get(key, key)
+                row_cells = table.add_row().cells
+                row_cells[0].text = label
+
+                if isinstance(value, list):
+                    row_cells[1].text = ", ".join(map(str, value))
+                else:
+                    row_cells[1].text = str(value)
 
             # Make the first column bold
             for paragraph in row_cells[0].paragraphs:
                 for run in paragraph.runs:
                     run.bold = True
-
-        if full_description:
-            doc.add_page_break()
-            doc.add_heading("Full Dataset Description", level=1)
-            # Add text preserving paragraphs
-            for p_text in full_description.split('\n'):
-                if p_text.strip():
-                    doc.add_paragraph(p_text)
 
         docx_buffer = io.BytesIO()
         doc.save(docx_buffer)
@@ -515,8 +553,9 @@ if submit_button:
             zip_file.writestr(docx_name, docx_buffer.getvalue())
             if pdf_success:
                 zip_file.writestr(pdf_name, pdf_buffer.getvalue())
-            if description_file:
-                zip_file.writestr(description_file.name, description_file.getvalue())
+            for ms in st.session_state.manuscript_list:
+                if ms['type'] == 'File':
+                    zip_file.writestr(ms['file'].name, ms['file'].getvalue())
         zip_buffer.seek(0)
 
         # Store in session state for later use in email and to persist buttons

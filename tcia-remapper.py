@@ -423,7 +423,7 @@ if st.session_state.phase == 0:
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
-                        'dataset_description': proposal_data.get('Dataset Description', ''),
+                        'dataset_description': '', # No longer import description from proposal
                         'adult_or_childhood_study': study_val,
                         'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or ''
                     }
@@ -431,7 +431,7 @@ if st.session_state.phase == 0:
 
                     # Update CICADAS fields
                     st.session_state.cicadas['abstract'] = proposal_data.get('Abstract', '')
-                    st.session_state.cicadas['introduction'] = proposal_data.get('Dataset Description', '')
+                    st.session_state.cicadas['introduction'] = ''
 
                     # Map Software/Source Code to CICADAS external resources
                     software_info = ""
@@ -454,15 +454,45 @@ if st.session_state.phase == 0:
 
                     # Map Related Work
                     rel_works = []
+
+                    # Legacy support
                     for k in ['citation_primary', 'citations_content', 'additional_publications', 'descriptor_publication']:
                         val = proposal_data.get(k)
                         if val and str(val).strip():
                             rel_works.append({
                                 'title': str(val).strip(),
                                 'publication_type': 'Journal Article',
+                                'relationship_type': 'Describes' if k == 'descriptor_publication' else 'IsDerivedFrom',
                                 'authorship': '',
                                 'DOI': ''
                             })
+
+                    # New Manuscripts field support
+                    manuscripts_raw = proposal_data.get('Manuscripts')
+                    if manuscripts_raw:
+                        try:
+                            ms_list = json.loads(manuscripts_raw)
+                            for ms in ms_list:
+                                val = ms.get('value', '')
+                                cat = ms.get('category', '')
+
+                                # Extract DOI if possible
+                                doi = ""
+                                if 'doi.org/' in val:
+                                    doi_match = re.search(r'10\.\d{4,9}/[-._;()/:A-Z0-9]+', val, re.I)
+                                    if doi_match:
+                                        doi = doi_match.group()
+
+                                rel_works.append({
+                                    'title': val,
+                                    'publication_type': 'Preprint', # Default for proposal stage
+                                    'relationship_type': 'Describes' if cat == 'Dataset Descriptor' else 'IsDerivedFrom',
+                                    'authorship': '',
+                                    'DOI': doi
+                                })
+                        except:
+                            pass
+
                     if rel_works:
                         st.session_state.metadata['Related_Work'] = rel_works
 
