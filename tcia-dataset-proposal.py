@@ -65,7 +65,6 @@ LABELS = {
     "faces": "Does your data contain any images of patient faces?*",
     "collections_analyzed": "Which TCIA collection(s) did you analyze?*",
     "derived_types": "What types of derived data are included in the dataset?*",
-    "image_records": "Do you have records to indicate exactly which TCIA images analyzed?*",
     "disk_space": "Approximate disk space required*",
     "Time Constraints": "Are there any time constraints associated with sharing your data set?*",
     "manuscripts": "Are there any manuscripts or preprints that might help us better understand your dataset?",
@@ -217,7 +216,7 @@ abstract = st.text_area(LABELS["Abstract"], label_visibility="collapsed", help="
 # Manuscripts Section
 st.write(f"**{LABELS['manuscripts']}**")
 st.markdown("""
-We highly encourage "data descriptor" pre-prints published on [arxiv.org](https://arxiv.org/) that are focused on the contents of the dataset (not scientific advances) with [CICADAS](https://cancerimagingarchive.net/cicadas) formatting preferred.
+We highly encourage "data descriptor" preprints published on [arxiv.org](https://arxiv.org/) that are focused on the contents of the dataset (not scientific advances) with [CICADAS](https://cancerimagingarchive.net/cicadas) formatting preferred.
 """)
 has_manuscripts = st.radio(LABELS["manuscripts"], options=["No", "Yes"], index=0, key="has_manuscripts", label_visibility="collapsed")
 
@@ -334,7 +333,6 @@ else: # Analysis Results
         options=["Segmentation", "Classification", "Quantitative Feature", "Image (converted/processed/registered)", "Other"],
         key="derived_types"
     )
-    extra_data['image_records'] = st.radio(LABELS["image_records"], options=["Yes, I know exactly.", "No, I need assistance."], key="image_records")
 
     st.write(f"**{LABELS['file_formats']}**")
     ar_formats = []
