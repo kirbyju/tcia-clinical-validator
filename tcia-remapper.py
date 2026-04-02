@@ -7,7 +7,9 @@ import sys
 import requests
 import zipfile
 import ast
+import datetime
 from io import BytesIO
+from docx import Document
 import importlib.util
 
 # Add tcia-remapping-skill to the path and import the helper
@@ -421,6 +423,24 @@ if st.session_state.phase == 0:
                         except:
                             pass
 
+                    # Handle multiple funding sources
+                    f_sources = proposal_data.get('funding_sources')
+                    f_agency = proposal_data.get('funding_agency', '')
+                    f_prog = proposal_data.get('funding_source_program_name', '')
+                    f_grant = proposal_data.get('grant_id', '')
+
+                    if f_sources:
+                        try:
+                            f_list = json.loads(f_sources)
+                            if f_list:
+                                # For single-valued TSV fields, we'll take the first one
+                                # but keep the full list in proposal_raw_data for DOCX
+                                f_agency = f_list[0].get('agency', f_agency)
+                                f_prog = f_list[0].get('program', f_prog)
+                                f_grant = f_list[0].get('grant', f_grant)
+                        except:
+                            pass
+
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
@@ -428,9 +448,9 @@ if st.session_state.phase == 0:
                         'dataset_description': '', # No longer import description from proposal
                         'adult_or_childhood_study': study_val,
                         'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or '',
-                        'funding_agency': proposal_data.get('funding_agency', ''),
-                        'funding_source_program_name': proposal_data.get('funding_source_program_name', ''),
-                        'grant_id': proposal_data.get('grant_id', '')
+                        'funding_agency': f_agency,
+                        'funding_source_program_name': f_prog,
+                        'grant_id': f_grant
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -980,7 +1000,6 @@ if st.session_state.phase == 0:
 
         # --- DOCX Generation Helper ---
         def generate_summary_docx():
-            from docx import Document
             doc = Document()
 
             nickname = ""
@@ -1012,7 +1031,7 @@ if st.session_state.phase == 0:
                     poc_info.append(f"{role}: {name} ({email}) {phone}".strip())
 
             add_row(table, "POC Information", "\n".join(poc_info))
-            add_row(table, "Submission schedule and deadlines", "")
+            add_row(table, "Submission schedule and deadlines", prop_data.get('Time Constraints', ''))
             add_row(table, "Expected patient count", prop_data.get('number_of_subjects', ''))
             add_row(table, "Expected disk size", prop_data.get('disk_space', ''))
 
@@ -1064,9 +1083,29 @@ if st.session_state.phase == 0:
             add_row(table_wp2, "Acknowledgements", ds_meta.get('acknowledgements', ''))
 
             funding_parts = []
-            if ds_meta.get('funding_agency'): funding_parts.append(f"Agency: {ds_meta['funding_agency']}")
-            if ds_meta.get('funding_source_program_name'): funding_parts.append(f"Program: {ds_meta['funding_source_program_name']}")
-            if ds_meta.get('grant_id'): funding_parts.append(f"Grant: {ds_meta['grant_id']}")
+            f_sources_raw = prop_data.get('funding_sources')
+            if f_sources_raw:
+                try:
+                    f_list = json.loads(f_sources_raw)
+                    for f in f_list:
+                        fp = []
+                        if f.get('agency'): fp.append(f"Agency: {f['agency']}")
+                        if f.get('program'): fp.append(f"Program: {f['program']}")
+                        if f.get('grant'): fp.append(f"Grant: {f['grant']}")
+                        if fp:
+                            funding_parts.append(" | ".join(fp))
+                except:
+                    pass
+
+            # Fallback to single fields if list is empty
+            if not funding_parts:
+                fp = []
+                if ds_meta.get('funding_agency'): fp.append(f"Agency: {ds_meta['funding_agency']}")
+                if ds_meta.get('funding_source_program_name'): fp.append(f"Program: {ds_meta['funding_source_program_name']}")
+                if ds_meta.get('grant_id'): fp.append(f"Grant: {ds_meta['grant_id']}")
+                if fp:
+                    funding_parts.append(" | ".join(fp))
+
             add_row(table_wp2, "Funding", "\n".join(funding_parts))
 
             prog_meta = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
@@ -1120,7 +1159,6 @@ if st.session_state.phase == 0:
         # --- ZIP Generation Helper ---
         def generate_full_zip(generated_files):
             zip_buf = BytesIO()
-            import datetime
             today = datetime.date.today().isoformat()
             nickname = st.session_state.metadata['Dataset'][0].get('dataset_short_name', 'dataset') if st.session_state.metadata['Dataset'] else 'dataset'
             zip_filename = f"{nickname}_NCI_Submission_Package_{today}.zip"

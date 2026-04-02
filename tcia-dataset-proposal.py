@@ -375,13 +375,38 @@ extra_data['adult_or_childhood_study'] = st.multiselect(
 )
 
 st.write("**Funding Information (Optional)**")
-col1, col2, col3 = st.columns(3)
-with col1:
-    extra_data['funding_agency'] = st.text_input(LABELS["funding_agency"], key="funding_agency")
-with col2:
-    extra_data['funding_source_program_name'] = st.text_input(LABELS["funding_source_program_name"], key="funding_source_program_name")
-with col3:
-    extra_data['grant_id'] = st.text_input(LABELS["grant_id"], key="grant_id")
+if 'funding_list' not in st.session_state:
+    st.session_state.funding_list = []
+
+# Display existing funding entries
+for idx, fund in enumerate(st.session_state.funding_list):
+    with st.container(border=True):
+        col_info, col_del = st.columns([6, 1])
+        with col_info:
+            parts = []
+            if fund['agency']: parts.append(f"Agency: {fund['agency']}")
+            if fund['program']: parts.append(f"Program: {fund['program']}")
+            if fund['grant']: parts.append(f"Grant: {fund['grant']}")
+            st.write(" | ".join(parts))
+        with col_del:
+            if st.button("🗑️", key=f"del_fund_{idx}"):
+                st.session_state.funding_list.pop(idx)
+                st.rerun()
+
+with st.expander("➕ Add Funding Source"):
+    col1, col2, col3 = st.columns(3)
+    with col1: f_agency = st.text_input(LABELS["funding_agency"], key="f_agency_new")
+    with col2: f_program = st.text_input(LABELS["funding_source_program_name"], key="f_program_new")
+    with col3: f_grant = st.text_input(LABELS["grant_id"], key="f_grant_new")
+    if st.button("Add Funding Source"):
+        if f_agency or f_program or f_grant:
+            st.session_state.funding_list.append({'agency': f_agency, 'program': f_program, 'grant': f_grant})
+            st.rerun()
+        else:
+            st.error("Please provide at least one piece of funding information.")
+
+# Serialize for TSV
+extra_data['funding_sources'] = json.dumps(st.session_state.funding_list)
 
 extra_data['acknowledgements'] = st.text_area(LABELS["acknowledgements"], key="acknowledgements", help="Please provide any acknowledgements that should be included with the dataset.")
 
@@ -416,7 +441,7 @@ if submit_button:
     if not published_elsewhere: missing_fields.append(LABELS["Published Elsewhere"])
 
     # Define optional fields that shouldn't block submission
-    optional_fields = ['funding_agency', 'funding_source_program_name', 'grant_id', 'software_details']
+    optional_fields = ['funding_agency', 'funding_source_program_name', 'grant_id', 'funding_sources', 'software_details']
 
     for key, val in extra_data.items():
         if key in optional_fields:
@@ -487,6 +512,18 @@ if submit_button:
                     val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
                     ms_text += f"- [{ms['category']}] {val}\n"
                 row_cells[1].text = ms_text.strip()
+            elif key == "funding_sources":
+                label = "Funding Sources"
+                row_cells = table.add_row().cells
+                row_cells[0].text = label
+                fund_text = ""
+                for fund in st.session_state.funding_list:
+                    parts = []
+                    if fund['agency']: parts.append(f"Agency: {fund['agency']}")
+                    if fund['program']: parts.append(f"Program: {fund['program']}")
+                    if fund['grant']: parts.append(f"Grant: {fund['grant']}")
+                    fund_text += "- " + " | ".join(parts) + "\n"
+                row_cells[1].text = fund_text.strip()
             else:
                 label = LABELS.get(key, key)
                 row_cells = table.add_row().cells
