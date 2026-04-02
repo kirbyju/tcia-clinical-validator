@@ -70,7 +70,10 @@ LABELS = {
     "manuscripts": "Are there any manuscripts or preprints that might help us better understand your dataset?",
     "adult_or_childhood_study": "Is this an Adult or Childhood study?*",
     "number_of_subjects": "Approximate number of subjects*",
-    "acknowledgements": "Acknowledgements or funding statements*",
+    "acknowledgements": "Acknowledgements*",
+    "funding_agency": "Funding Agency",
+    "funding_source_program_name": "Funding Source Program Name",
+    "grant_id": "Grant ID",
     "why_tcia": "Why would you like to publish this dataset on TCIA?*",
     "software_code": "Do you have any related resources such as source code, Jupyter notebooks, web sites or other software that will help users work with your data?*",
     "software_details": "Details*"
@@ -370,7 +373,18 @@ extra_data['adult_or_childhood_study'] = st.multiselect(
     options=["Adolescent and Young Adult", "Adult", "Pediatric"],
     key="adult_or_childhood_study"
 )
-extra_data['acknowledgements'] = st.text_area(LABELS["acknowledgements"], key="acknowledgements")
+
+st.write("**Funding Information (Optional)**")
+col1, col2, col3 = st.columns(3)
+with col1:
+    extra_data['funding_agency'] = st.text_input(LABELS["funding_agency"], key="funding_agency")
+with col2:
+    extra_data['funding_source_program_name'] = st.text_input(LABELS["funding_source_program_name"], key="funding_source_program_name")
+with col3:
+    extra_data['grant_id'] = st.text_input(LABELS["grant_id"], key="grant_id")
+
+extra_data['acknowledgements'] = st.text_area(LABELS["acknowledgements"], key="acknowledgements", help="Please provide any acknowledgements that should be included with the dataset.")
+
 extra_data['why_tcia'] = st.multiselect(
     LABELS["why_tcia"],
     options=["To meet a funding agency's requirements", "To meet a journal's requirements", "To facilitate collaboration", "To facilitate a challenge competition", "Other"],
@@ -401,7 +415,12 @@ if submit_button:
     if not abstract: missing_fields.append(LABELS["Abstract"])
     if not published_elsewhere: missing_fields.append(LABELS["Published Elsewhere"])
 
+    # Define optional fields that shouldn't block submission
+    optional_fields = ['funding_agency', 'funding_source_program_name', 'grant_id', 'software_details']
+
     for key, val in extra_data.items():
+        if key in optional_fields:
+            continue
         if not val:
             label = LABELS.get(key, key.replace('_', ' ').title())
             missing_fields.append(label)
