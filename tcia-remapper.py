@@ -7,7 +7,9 @@ import sys
 import requests
 import zipfile
 import ast
+import datetime
 from io import BytesIO
+from docx import Document
 import importlib.util
 
 # Add tcia-remapping-skill to the path and import the helper
@@ -278,6 +280,7 @@ if 'phase' not in st.session_state:
     st.session_state.column_mapping = {}
     st.session_state.structure_approved = False
     st.session_state.output_dir = 'output'
+    st.session_state.proposal_raw_data = {}
     st.session_state.cicadas = {
         'abstract': '',
         'introduction': '',
@@ -410,6 +413,7 @@ if st.session_state.phase == 0:
 
                 if not import_df.empty:
                     proposal_data = import_df.iloc[0].to_dict()
+                    st.session_state.proposal_raw_data = proposal_data
 
                     # Map Dataset
                     study_val = proposal_data.get('adult_or_childhood_study', '')
@@ -419,13 +423,34 @@ if st.session_state.phase == 0:
                         except:
                             pass
 
+                    # Handle multiple funding sources
+                    f_sources = proposal_data.get('funding_sources')
+                    f_agency = proposal_data.get('funding_agency', '')
+                    f_prog = proposal_data.get('funding_source_program_name', '')
+                    f_grant = proposal_data.get('grant_id', '')
+
+                    if f_sources:
+                        try:
+                            f_list = json.loads(f_sources)
+                            if f_list:
+                                # For single-valued TSV fields, we'll take the first one
+                                # but keep the full list in proposal_raw_data for DOCX
+                                f_agency = f_list[0].get('agency', f_agency)
+                                f_prog = f_list[0].get('program', f_prog)
+                                f_grant = f_list[0].get('grant', f_grant)
+                        except:
+                            pass
+
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
                         'dataset_description': '', # No longer import description from proposal
                         'adult_or_childhood_study': study_val,
-                        'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or ''
+                        'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or '',
+                        'funding_agency': f_agency,
+                        'funding_source_program_name': f_prog,
+                        'grant_id': f_grant
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -963,7 +988,194 @@ if st.session_state.phase == 0:
     elif st.session_state.phase0_step == "Review":
         st.subheader("Review & Generate TSV Files")
         st.markdown("Review all your metadata and generate the TSV files.")
-        
+
+        # --- Analysis Result Validation ---
+        is_analysis_result = st.session_state.get('proposal_raw_data', {}).get('Proposal Type') == "Analysis Results Proposal"
+        related_datasets = []
+        if is_analysis_result:
+            related_datasets = [w for w in st.session_state.metadata.get('Related_Work', []) if w.get('publication_type') == 'Dataset']
+            if not related_datasets:
+                st.error("⚠️ **Action Required**: For Analysis Results, you must provide at least one Related Dataset. Please go to the **Related Work** tab and add a Related Dataset before proceeding.")
+                # We don't stop here, but we'll disable the final ZIP generation
+
+        # --- DOCX Generation Helper ---
+        def generate_summary_docx():
+            doc = Document()
+
+            nickname = ""
+            if st.session_state.metadata['Dataset']:
+                nickname = st.session_state.metadata['Dataset'][0].get('dataset_short_name', '')
+                long_name = st.session_state.metadata['Dataset'][0].get('dataset_long_name', '')
+
+            doc.add_heading('NCI Imaging Submission Summary', 0)
+
+            # [H1] Basic information:
+            doc.add_heading('Basic information', level=1)
+            table = doc.add_table(rows=0, cols=2)
+            table.style = 'Table Grid'
+
+            def add_row(t, label, value):
+                row = t.add_row().cells
+                row[0].text = label
+                row[0].paragraphs[0].runs[0].bold = True
+                row[1].text = str(value) if value is not None else ""
+
+            # POC names, phones, emails
+            prop_data = st.session_state.get('proposal_raw_data', {})
+            poc_info = []
+            for role in ["Scientific", "Technical", "Legal"]:
+                name = prop_data.get(f"{role} POC Name", "")
+                email = prop_data.get(f"{role} POC Email", "")
+                phone = prop_data.get(f"{role} POC Phone", "")
+                if name:
+                    poc_info.append(f"{role}: {name} ({email}) {phone}".strip())
+
+            add_row(table, "POC Information", "\n".join(poc_info))
+            add_row(table, "Submission schedule and deadlines", prop_data.get('Time Constraints', ''))
+            add_row(table, "Expected patient count", prop_data.get('number_of_subjects', ''))
+            add_row(table, "Expected disk size", prop_data.get('disk_space', ''))
+
+            # Expected types of data
+            types = []
+            if prop_data.get('image_types'):
+                types.append(f"Images: {prop_data['image_types']}")
+            if prop_data.get('supporting_data'):
+                types.append(f"Supporting: {prop_data['supporting_data']}")
+            if prop_data.get('derived_types'):
+                types.append(f"Derived: {prop_data['derived_types']}")
+            add_row(table, "Expected types of data", "\n".join(types))
+            add_row(table, "Approximate date range of study execution", "")
+
+            # [H1] DataCite Information:
+            doc.add_heading('DataCite Information', level=1)
+            table_dc = doc.add_table(rows=0, cols=2)
+            table_dc.style = 'Table Grid'
+
+            # Authors (Last Name, First Name (ORCiD ID if provided) for each author in the correct order)
+            invs = sorted(st.session_state.metadata.get('Investigator', []), key=lambda x: int(x.get('author_order', 999)) if str(x.get('author_order', '')).isdigit() else 999)
+            author_strings = []
+            for inv in invs:
+                auth_str = f"{inv.get('last_name', '')}, {inv.get('first_name', '')}"
+                if inv.get('person_orcid'):
+                    auth_str += f" ({inv.get('person_orcid')})"
+                author_strings.append(auth_str)
+            add_row(table_dc, "Authors", "\n".join(author_strings))
+            add_row(table_dc, "Rights", "") # Placeholder for license from file.tsv logic
+
+            # [H1] Wordpress Page:
+            doc.add_heading('Wordpress Page', level=1)
+            doc.add_heading('Add New Collection', level=2)
+            table_wp1 = doc.add_table(rows=0, cols=2)
+            table_wp1.style = 'Table Grid'
+            add_row(table_wp1, "New Collection Title", nickname)
+
+            doc.add_heading('Dataset Information', level=2)
+            table_wp2 = doc.add_table(rows=0, cols=2)
+            table_wp2.style = 'Table Grid'
+            add_row(table_wp2, "DOI", "Do not include https://doi.org From Datacite.  10.7937/")
+            add_row(table_wp2, "Status", "Set to Ongoing or Complete")
+            add_row(table_wp2, "Title", st.session_state.metadata['Dataset'][0].get('dataset_long_name', '') if st.session_state.metadata['Dataset'] else "")
+            add_row(table_wp2, "Short Title", nickname)
+            add_row(table_wp2, "Featured Image", "Sample Image/Figure: Used as the \"Featured Image\" in Wordpress")
+            add_row(table_wp2, "Summary", "Insert link to google doc (draft where we iterate with the submitter), then populate with the final description when it's ready.")
+
+            ds_meta = st.session_state.metadata['Dataset'][0] if st.session_state.metadata['Dataset'] else {}
+            add_row(table_wp2, "Acknowledgements", ds_meta.get('acknowledgements', ''))
+
+            funding_parts = []
+            f_sources_raw = prop_data.get('funding_sources')
+            if f_sources_raw:
+                try:
+                    f_list = json.loads(f_sources_raw)
+                    for f in f_list:
+                        fp = []
+                        if f.get('agency'): fp.append(f"Agency: {f['agency']}")
+                        if f.get('program'): fp.append(f"Program: {f['program']}")
+                        if f.get('grant'): fp.append(f"Grant: {f['grant']}")
+                        if fp:
+                            funding_parts.append(" | ".join(fp))
+                except:
+                    pass
+
+            # Fallback to single fields if list is empty
+            if not funding_parts:
+                fp = []
+                if ds_meta.get('funding_agency'): fp.append(f"Agency: {ds_meta['funding_agency']}")
+                if ds_meta.get('funding_source_program_name'): fp.append(f"Program: {ds_meta['funding_source_program_name']}")
+                if ds_meta.get('grant_id'): fp.append(f"Grant: {ds_meta['grant_id']}")
+                if fp:
+                    funding_parts.append(" | ".join(fp))
+
+            add_row(table_wp2, "Funding", "\n".join(funding_parts))
+
+            prog_meta = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
+            add_row(table_wp2, "Program", prog_meta.get('program_short_name', ''))
+
+            doc.add_heading('Details', level=2)
+            table_wp3 = doc.add_table(rows=0, cols=2)
+            table_wp3.style = 'Table Grid'
+            add_row(table_wp3, "Cancer Types", prop_data.get('diagnosis', ''))
+            add_row(table_wp3, "Cancer Locations", prop_data.get('disease_site', ''))
+            add_row(table_wp3, "Species", "Human (change if not)")
+            add_row(table_wp3, "Subjects", prop_data.get('number_of_subjects', ''))
+
+            doc.add_heading('Data Access', level=2)
+            table_wp4 = doc.add_table(rows=0, cols=2)
+            table_wp4.style = 'Table Grid'
+            add_row(table_wp4, "Downloads", "Refer to \"data type\" (link: https://www.cancerimagingarchive.net/wp-admin/edit.php?post_type=tcia_data_type) and \"file format\" (link: https://www.cancerimagingarchive.net/wp-admin/edit.php?post_type=tcia_file_type) labels")
+            add_row(table_wp4, "Make New Version", "SAVE YOUR CHANGES to this post before clicking this button or you will lose any changes by clicking the Update button (upper-right).  Clones the current version to the Previous Versions tables, and updates Version Number and Date Updated.")
+            add_row(table_wp4, "Version Number", "The version number updates programmatically with the Make New Version button.")
+            add_row(table_wp4, "Date Updated", "Updates programmatically with the Make New Version button, but can be changed manually.")
+            add_row(table_wp4, "Version Change Log", "Before changing the version log, make a new version using Make New Version button, above.")
+
+            doc.add_heading('Data Access Supplemental', level=2)
+            table_wp5 = doc.add_table(rows=0, cols=2)
+            table_wp5.style = 'Table Grid'
+            add_row(table_wp5, "Additional Resources", st.session_state.cicadas.get('external_resources', ''))
+            add_row(table_wp5, "Supporting Data", "Categorical labels that describe the External Resources (e.g. Clinical, Genomics) that are related, but not hosted on TCIA directly.")
+
+            # Related Datasets
+            rd_text = ""
+            if is_analysis_result:
+                rd_text = "\n".join([f"{d.get('title')} (DOI: {d.get('DOI')})" for d in related_datasets])
+            add_row(table_wp5, "Related Datasets", rd_text)
+
+            doc.add_heading('Citations and Data Usage Policy', level=2)
+            table_wp6 = doc.add_table(rows=0, cols=2)
+            table_wp6.style = 'Table Grid'
+            add_row(table_wp6, "Citations", "Source: Default Crosscite output using DOI\n\nThis is a pop out that you add:\n1. Dataset citation\n2. Data descriptor if available\n3. Any required acknowledgement")
+
+            # [H1] Issue Tracking
+            doc.add_heading('Issue Tracking', level=1)
+            table_it = doc.add_table(rows=0, cols=2)
+            table_it.style = 'Table Grid'
+            add_row(table_it, "Kickoff email date", "")
+
+            docx_buf = BytesIO()
+            doc.save(docx_buf)
+            docx_buf.seek(0)
+            return docx_buf
+
+        # --- ZIP Generation Helper ---
+        def generate_full_zip(generated_files):
+            zip_buf = BytesIO()
+            today = datetime.date.today().isoformat()
+            nickname = st.session_state.metadata['Dataset'][0].get('dataset_short_name', 'dataset') if st.session_state.metadata['Dataset'] else 'dataset'
+            zip_filename = f"{nickname}_NCI_Submission_Package_{today}.zip"
+
+            with zipfile.ZipFile(zip_buf, 'w') as zf:
+                # Add TSVs
+                for entity, path in generated_files.items():
+                    if os.path.exists(path) and os.path.getsize(path) > 0:
+                        zf.write(path, os.path.basename(path))
+
+                # Add DOCX
+                docx_data = generate_summary_docx()
+                zf.writestr(f"{nickname}_submission_summary_{today}.docx", docx_data.getvalue())
+
+            zip_buf.seek(0)
+            return zip_buf, zip_filename
+
         # --- Automatic Generation ---
         generated_files_map = {}
 
@@ -1008,6 +1220,23 @@ if st.session_state.phase == 0:
                 generated_files_map[entity_name] = filepath
         st.session_state.generated_tsv_files = list(generated_files_map.values())
         # ----------------------------
+
+        # --- Final Download Button ---
+        st.write("### 📦 Final Submission Package")
+        if is_analysis_result and not related_datasets:
+            st.warning("Final ZIP generation is disabled until a Related Dataset is added.")
+            st.button("📥 Download NCI Submission Package (ZIP)", disabled=True)
+        else:
+            zip_data, zip_filename = generate_full_zip(generated_files_map)
+            st.download_button(
+                label="📥 Download NCI Submission Package (ZIP)",
+                data=zip_data,
+                file_name=zip_filename,
+                mime="application/zip",
+                type="primary",
+                use_container_width=True
+            )
+        st.markdown("---")
 
         # Display recap
         st.write("### 📋 Metadata Summary")
