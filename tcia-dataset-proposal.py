@@ -98,10 +98,55 @@ def load_json(filepath):
     with open(filepath, 'r') as f:
         return json.load(f)
 
-def lookup_doi(doi):
-    """Fetch metadata from Crossref API"""
-    if not doi:
+def lookup_doi(doi_input):
+    """Fetch metadata from Crossref, arXiv, or DataCite APIs"""
+    if not doi_input:
         return None
+
+    # Strip common prefixes to extract raw DOI
+    doi = doi_input.strip()
+    prefixes = ["https://doi.org/", "http://doi.org/", "doi.org/", "doi:"]
+    for p in prefixes:
+        if doi.lower().startswith(p):
+            doi = doi[len(p):]
+
+    # Check for arXiv DOI
+    if "arxiv" in doi.lower():
+        # Example DOI: 10.48550/arXiv.2404.15009
+        # Extract arXiv ID (e.g., 2404.15009)
+        arxiv_match = re.search(r'arXiv\.(\d{4}\.\d{4,5})', doi, re.I)
+        if arxiv_match:
+            arxiv_id = arxiv_match.group(1)
+            try:
+                url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(response.text)
+                    entry = root.find('{http://www.w3.org/2005/Atom}entry')
+                    if entry is not None:
+                        title_elem = entry.find('{http://www.w3.org/2005/Atom}title')
+                        title = title_elem.text.strip().replace('\n', ' ') if title_elem is not None and title_elem.text else "No Title"
+
+                        authors_list = entry.findall('{http://www.w3.org/2005/Atom}author')
+                        author_names = []
+                        for a in authors_list:
+                            name_elem = a.find('{http://www.w3.org/2005/Atom}name')
+                            if name_elem is not None and name_elem.text:
+                                author_names.append(name_elem.text.strip())
+
+                        authors = ", ".join(author_names)
+                        if len(author_names) > 3:
+                            authors = f"{author_names[0]} et al."
+
+                        published_elem = entry.find('{http://www.w3.org/2005/Atom}published')
+                        year = str(published_elem.text[:4]) if published_elem is not None and published_elem.text else ""
+
+                        return f"{authors} ({year}). {title}. arXiv. DOI: {doi}"
+            except Exception as e:
+                pass
+
+    # Try Crossref
     try:
         url = f"https://api.crossref.org/works/{doi}"
         response = requests.get(url, timeout=10)
@@ -120,6 +165,24 @@ def lookup_doi(doi):
             return f"{authors} ({year}). {title}. {journal}. DOI: {doi}"
     except:
         pass
+
+    # Try DataCite
+    try:
+        url = f"https://api.datacite.org/dois/{doi}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()['data']['attributes']
+            title = data.get('titles', [{'title': ''}])[0].get('title', '')
+            creators = data.get('creators', [])
+            authors = ", ".join([c.get('name', '') for c in creators])
+            if len(creators) > 3:
+                authors = f"{creators[0].get('name', '')} et al."
+            year = str(data.get('publicationYear', ''))
+            publisher = data.get('publisher', '')
+            return f"{authors} ({year}). {title}. {publisher}. DOI: {doi}"
+    except:
+        pass
+
     return None
 
 @st.cache_data
@@ -375,38 +438,10 @@ extra_data['adult_or_childhood_study'] = st.multiselect(
 )
 
 st.write("**Funding Information (Optional)**")
-if 'funding_list' not in st.session_state:
-    st.session_state.funding_list = []
-
-# Display existing funding entries
-for idx, fund in enumerate(st.session_state.funding_list):
-    with st.container(border=True):
-        col_info, col_del = st.columns([6, 1])
-        with col_info:
-            parts = []
-            if fund['agency']: parts.append(f"Agency: {fund['agency']}")
-            if fund['program']: parts.append(f"Program: {fund['program']}")
-            if fund['grant']: parts.append(f"Grant: {fund['grant']}")
-            st.write(" | ".join(parts))
-        with col_del:
-            if st.button("🗑️", key=f"del_fund_{idx}"):
-                st.session_state.funding_list.pop(idx)
-                st.rerun()
-
-with st.expander("➕ Add Funding Source"):
-    col1, col2, col3 = st.columns(3)
-    with col1: f_agency = st.text_input(LABELS["funding_agency"], key="f_agency_new")
-    with col2: f_program = st.text_input(LABELS["funding_source_program_name"], key="f_program_new")
-    with col3: f_grant = st.text_input(LABELS["grant_id"], key="f_grant_new")
-    if st.button("Add Funding Source"):
-        if f_agency or f_program or f_grant:
-            st.session_state.funding_list.append({'agency': f_agency, 'program': f_program, 'grant': f_grant})
-            st.rerun()
-        else:
-            st.error("Please provide at least one piece of funding information.")
-
-# Serialize for TSV
-extra_data['funding_sources'] = json.dumps(st.session_state.funding_list)
+col1, col2, col3 = st.columns(3)
+with col1: extra_data['funding_agency'] = st.text_input(LABELS["funding_agency"], key="f_agency")
+with col2: extra_data['funding_source_program_name'] = st.text_input(LABELS["funding_source_program_name"], key="f_program")
+with col3: extra_data['grant_id'] = st.text_input(LABELS["grant_id"], key="f_grant")
 
 extra_data['acknowledgements'] = st.text_area(LABELS["acknowledgements"], key="acknowledgements", help="Please provide any acknowledgements that should be included with the dataset.")
 
@@ -512,18 +547,6 @@ if submit_button:
                     val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
                     ms_text += f"- [{ms['category']}] {val}\n"
                 row_cells[1].text = ms_text.strip()
-            elif key == "funding_sources":
-                label = "Funding Sources"
-                row_cells = table.add_row().cells
-                row_cells[0].text = label
-                fund_text = ""
-                for fund in st.session_state.funding_list:
-                    parts = []
-                    if fund['agency']: parts.append(f"Agency: {fund['agency']}")
-                    if fund['program']: parts.append(f"Program: {fund['program']}")
-                    if fund['grant']: parts.append(f"Grant: {fund['grant']}")
-                    fund_text += "- " + " | ".join(parts) + "\n"
-                row_cells[1].text = fund_text.strip()
             else:
                 label = LABELS.get(key, key)
                 row_cells = table.add_row().cells

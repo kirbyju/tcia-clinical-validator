@@ -91,42 +91,106 @@ DEFAULT_PROGRAMS = {
     }
 }
 
-def lookup_doi(doi):
-    """Fetch metadata from Crossref API"""
-    if not doi:
+def lookup_doi(doi_input):
+    """Fetch metadata from Crossref, arXiv, or DataCite APIs"""
+    if not doi_input:
         return None
+
+    # Strip common prefixes to extract raw DOI
+    doi = doi_input.strip()
+    prefixes = ["https://doi.org/", "http://doi.org/", "doi.org/", "doi:"]
+    for p in prefixes:
+        if doi.lower().startswith(p):
+            doi = doi[len(p):]
+
+    # Check for arXiv DOI
+    if "arxiv" in doi.lower():
+        # Example DOI: 10.48550/arXiv.2404.15009
+        # Extract arXiv ID (e.g., 2404.15009)
+        arxiv_match = re.search(r'arXiv\.(\d{4}\.\d{4,5})', doi, re.I)
+        if arxiv_match:
+            arxiv_id = arxiv_match.group(1)
+            try:
+                url = f"https://export.arxiv.org/api/query?id_list={arxiv_id}"
+                response = requests.get(url, timeout=10)
+                if response.status_code == 200:
+                    import xml.etree.ElementTree as ET
+                    root = ET.fromstring(response.text)
+                    entry = root.find('{http://www.w3.org/2005/Atom}entry')
+                    if entry is not None:
+                        title_elem = entry.find('{http://www.w3.org/2005/Atom}title')
+                        title = title_elem.text.strip().replace('\n', ' ') if title_elem is not None and title_elem.text else "No Title"
+
+                        authors_list = entry.findall('{http://www.w3.org/2005/Atom}author')
+                        author_names = []
+                        for a in authors_list:
+                            name_elem = a.find('{http://www.w3.org/2005/Atom}name')
+                            if name_elem is not None and name_elem.text:
+                                author_names.append(name_elem.text.strip())
+
+                        authors = ", ".join(author_names)
+                        if len(author_names) > 3:
+                            authors = f"{author_names[0]} et al."
+
+                        published_elem = entry.find('{http://www.w3.org/2005/Atom}published')
+                        year = str(published_elem.text[:4]) if published_elem is not None and published_elem.text else ""
+
+                        return {
+                            'title': title,
+                            'authors': authors,
+                            'year': year,
+                            'journal': 'arXiv'
+                        }
+            except Exception as e:
+                pass
+
+    # Try Crossref
     try:
         url = f"https://api.crossref.org/works/{doi}"
         response = requests.get(url, timeout=10)
         if response.status_code == 200:
             data = response.json()['message']
-
-            # Extract title
             title = data.get('title', [''])[0]
-
-            # Extract authors
             authors_list = data.get('author', [])
             authors = ", ".join([f"{a.get('family', '')} {a.get('given', '')}".strip() for a in authors_list])
             if len(authors_list) > 3:
                 authors = f"{authors_list[0].get('family', '')} et al."
-
-            # Extract year
             year = ""
             issued = data.get('issued', {}).get('date-parts', [[None]])[0][0]
             if issued:
                 year = str(issued)
-
-            # Extract journal
             journal = data.get('container-title', [''])[0]
-
             return {
                 'title': title,
                 'authors': authors,
                 'year': year,
                 'journal': journal
             }
-    except Exception as e:
-        st.error(f"Error looking up DOI: {e}")
+    except:
+        pass
+
+    # Try DataCite
+    try:
+        url = f"https://api.datacite.org/dois/{doi}"
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()['data']['attributes']
+            title = data.get('titles', [{'title': ''}])[0].get('title', '')
+            creators = data.get('creators', [])
+            authors = ", ".join([c.get('name', '') for c in creators])
+            if len(creators) > 3:
+                authors = f"{creators[0].get('name', '')} et al."
+            year = str(data.get('publicationYear', ''))
+            publisher = data.get('publisher', '')
+            return {
+                'title': title,
+                'authors': authors,
+                'year': year,
+                'journal': publisher
+            }
+    except:
+        pass
+
     return None
 
 def lookup_orcid(orcid_id):
@@ -181,7 +245,7 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
     props_to_show = [
         p for p in entity_props 
         if p['Property'] not in excluded_fields 
-        and not p['Property'].endswith('_id')
+        and p['Property'] not in [f"{entity_name.lower()}_id", "id"]
         and '.' not in p['Property']
     ]
 
@@ -423,23 +487,10 @@ if st.session_state.phase == 0:
                         except:
                             pass
 
-                    # Handle multiple funding sources
-                    f_sources = proposal_data.get('funding_sources')
+                    # Handle funding sources
                     f_agency = proposal_data.get('funding_agency', '')
                     f_prog = proposal_data.get('funding_source_program_name', '')
                     f_grant = proposal_data.get('grant_id', '')
-
-                    if f_sources:
-                        try:
-                            f_list = json.loads(f_sources)
-                            if f_list:
-                                # For single-valued TSV fields, we'll take the first one
-                                # but keep the full list in proposal_raw_data for DOCX
-                                f_agency = f_list[0].get('agency', f_agency)
-                                f_prog = f_list[0].get('program', f_prog)
-                                f_grant = f_list[0].get('grant', f_grant)
-                        except:
-                            pass
 
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
@@ -718,27 +769,32 @@ if st.session_state.phase == 0:
         st.subheader("Investigator Information")
         st.markdown("Add one or more investigators for this dataset.")
         
-        # --- Batch Import from Proposal ---
-        if st.session_state.get('raw_authors'):
-            with st.expander("📥 Import Investigators from Proposal", expanded=True):
-                st.info("Found raw author information from the imported proposal. Choose a parsing strategy to preview and add them.")
-                st.code(st.session_state.raw_authors)
+        # --- Batch Import ---
+        with st.expander("📥 Batch Import / Edit Investigators", expanded=st.session_state.get('raw_authors') != ""):
+            st.info("Paste a list of investigators or edit the imported list. Choose a parsing strategy to preview and add them.")
 
-                strategy = st.selectbox(
-                    "Parsing Strategy",
-                    options=[
-                        "Auto-detect",
-                        "Family, Given - ORCID (e.g. Smith, John - 0000-0002-1234-5678)",
-                        "Family, Given (e.g. Smith, John)",
-                        "Given Family (e.g. John Smith)"
-                    ],
-                    index=0
-                )
+            raw_authors_input = st.text_area(
+                "Raw Author List",
+                value=st.session_state.get('raw_authors', ''),
+                help="Enter one author per line or separated by semicolons. Format: (Family, Given) - ORCID or Given Family",
+                height=150
+            )
 
-                # Parsing logic
-                raw_lines = re.split(r'[;\n]', st.session_state.raw_authors)
-                parsed_results = []
+            strategy = st.selectbox(
+                "Parsing Strategy",
+                options=[
+                    "Auto-detect",
+                    "Family, Given - ORCID (e.g. Smith, John - 0000-0002-1234-5678)",
+                    "Family, Given (e.g. Smith, John)",
+                    "Given Family (e.g. John Smith)"
+                ],
+                index=0
+            )
 
+            # Parsing logic
+            parsed_results = []
+            if raw_authors_input:
+                raw_lines = re.split(r'[;\n]', raw_authors_input)
                 for i, line in enumerate(raw_lines, 1):
                     line = line.strip()
                     if not line: continue
@@ -776,7 +832,7 @@ if st.session_state.phase == 0:
                             first_name = parts[0].strip()
 
                     parsed_results.append({
-                        'author_order': i,
+                        'author_order': i + len(st.session_state.metadata['Investigator']),
                         'first_name': first_name,
                         'last_name': last_name,
                         'person_orcid': orcid,
@@ -784,10 +840,13 @@ if st.session_state.phase == 0:
                         'organization_name': ''
                     })
 
+            if parsed_results:
                 st.write("**Preview & Edit Parsed Results:**")
-                edited_df = st.data_editor(pd.DataFrame(parsed_results), num_rows="dynamic", use_container_width=True, key="investigator_editor")
+                # Ensure author_order is correctly typed and sequence is preserved
+                preview_df = pd.DataFrame(parsed_results)
+                edited_df = st.data_editor(preview_df, num_rows="dynamic", use_container_width=True, key="investigator_editor")
 
-                if st.button("➕ Add All Parsed Investigators"):
+                if st.button("➕ Add All Parsed Investigators", type="primary"):
                     st.session_state.metadata['Investigator'].extend(edited_df.to_dict('records'))
                     st.session_state.raw_authors = "" # Clear after adding
                     st.success("✅ Added investigators!")
@@ -848,7 +907,7 @@ if st.session_state.phase == 0:
             
             submitted = st.form_submit_button("Save & Next")
             if submitted:
-                if investigator_data.get('first_name') and investigator_data.get('last_name') and investigator_data.get('email'):
+                if investigator_data.get('first_name') and investigator_data.get('last_name'):
                     st.session_state.metadata['Investigator'].append(investigator_data)
 
                     # Clear session state
@@ -860,7 +919,7 @@ if st.session_state.phase == 0:
                     st.session_state.phase0_step = 'Related_Work'
                     st.rerun()
                 else:
-                    st.error("Please fill in all required fields (First Name, Last Name, Email).")
+                    st.error("Please fill in all required fields (First Name, Last Name).")
     
     # TAB 5: Related Work
     elif st.session_state.phase0_step == "Related_Work":
@@ -1083,30 +1142,11 @@ if st.session_state.phase == 0:
             add_row(table_wp2, "Acknowledgements", ds_meta.get('acknowledgements', ''))
 
             funding_parts = []
-            f_sources_raw = prop_data.get('funding_sources')
-            if f_sources_raw:
-                try:
-                    f_list = json.loads(f_sources_raw)
-                    for f in f_list:
-                        fp = []
-                        if f.get('agency'): fp.append(f"Agency: {f['agency']}")
-                        if f.get('program'): fp.append(f"Program: {f['program']}")
-                        if f.get('grant'): fp.append(f"Grant: {f['grant']}")
-                        if fp:
-                            funding_parts.append(" | ".join(fp))
-                except:
-                    pass
+            if ds_meta.get('funding_agency'): funding_parts.append(f"Agency: {ds_meta['funding_agency']}")
+            if ds_meta.get('funding_source_program_name'): funding_parts.append(f"Program: {ds_meta['funding_source_program_name']}")
+            if ds_meta.get('grant_id'): funding_parts.append(f"Grant: {ds_meta['grant_id']}")
 
-            # Fallback to single fields if list is empty
-            if not funding_parts:
-                fp = []
-                if ds_meta.get('funding_agency'): fp.append(f"Agency: {ds_meta['funding_agency']}")
-                if ds_meta.get('funding_source_program_name'): fp.append(f"Program: {ds_meta['funding_source_program_name']}")
-                if ds_meta.get('grant_id'): fp.append(f"Grant: {ds_meta['grant_id']}")
-                if fp:
-                    funding_parts.append(" | ".join(fp))
-
-            add_row(table_wp2, "Funding", "\n".join(funding_parts))
+            add_row(table_wp2, "Funding", " | ".join(funding_parts))
 
             prog_meta = st.session_state.metadata['Program'][0] if st.session_state.metadata['Program'] else {}
             add_row(table_wp2, "Program", prog_meta.get('program_short_name', ''))
