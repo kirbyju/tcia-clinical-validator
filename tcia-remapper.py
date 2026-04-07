@@ -163,48 +163,53 @@ def cicadas_feedback_prompt(section_label: str, user_text: str, context_sections
     guidance = (guidance or "").strip()
     context_sections = (context_sections or "").strip()
 
-    context_block = ""
+    context_line = ""
     if context_sections:
-        context_block = f"""\nOTHER COMPLETED SECTIONS (for coherence only \u2014 do NOT copy, repeat, or summarize their content):\n{context_sections}\n"""
+        context_line = f"\nOther sections already written: {context_sections}. Do not repeat or reference them."
 
-    return f"""
-You are an expert technical editor for The Cancer Imaging Archive (TCIA).
-You are rewriting the user's text to be clearer, more specific, and more informative, using only the information they provided.
+    guidance_line = guidance if guidance else "Follow standard CICADAS-style expectations for this section."
 
-CICADAS is TCIA's structured dataset documentation framework. It requires precise, factual descriptions of study purpose, subject criteria, imaging acquisition, data processing, and appropriate research use.
-Section to improve: {section_label}
-
-Section requirements:
-{guidance if guidance else "Follow standard CICADAS-style expectations for this section."}
-{context_block}
-STRICT RULES:
-- Output ONLY the rewritten text for this section.
-- Do NOT include explanations, commentary, prefatory remarks, or concluding remarks.
-- Do NOT include labels, headings, bullets, Markdown, code blocks, or formatting of any kind.
-- Do NOT include the name of the section or any other section labels in your output. (Example: do not do "Abstract: This dataset is...". Just output the rewritten text itself.)
-- Do NOT invent or assume any facts not explicitly present in the original text.
-- Do NOT copy, repeat, or incorporate content from the other sections provided as context.
-- Use the other sections only to avoid contradictions and ensure consistent terminology.
-- If details are missing, improve clarity using general language without adding new specifics.
-- Keep the rewrite limited strictly to the content of this section.
-- Maintain or improve the level of informativeness without reducing substantive content.
-- Always use a polished, professional tone appropriate for a scientific dataset description.
-- Always follow all section-specific constraints and hard requirements.
-
-SECTION-SPECIFIC CONSTRAINTS:
-- Title must be a single line and must not contain colons.
-- Abstract must be 2\u20135 sentences in a single paragraph, without bullets.
-- The output must be a rewritten version of the user's input that improves clarity and precision while adhering to all constraints above.
-
-Text to rewrite:
-\"\"\"{user_text}\"\"\"
-""".strip()
+    return (
+        f"Rewrite the following text for the {section_label} section of a TCIA CICADAS dataset description.\n\n"
+        f"Text to rewrite:\n\"\"\"{user_text}\"\"\"\n\n"
+        f"Rules:\n"
+        f"- Output ONLY the rewritten text. No labels, headings, or preamble.\n"
+        f"- Do not start with \"{section_label}:\" or any section name.\n"
+        f"- Do not invent facts not present in the original text.\n"
+        f"- Use a polished, professional scientific tone.\n"
+        f"- {guidance_line}"
+        f"{context_line}\n\n"
+        f"Rewritten text:"
+    )
 
 def _clean_ai_output(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-    return t.replace("```", "").strip()
+
+    # Strip markdown code fences
+    t = t.replace("```", "").strip()
+
+    # Strip leaked section label prefixes like "Abstract: ...", "Heading: ...", etc.
+    # Matches any word or short phrase followed by a colon at the very start of the text
+    _label_pattern = re.compile(
+        r"^(abstract|introduction|methods?(?:\s*:\s*\S+)?|subject[s]? inclusion.*?|"
+        r"data acquisition|data analysis|usage notes?|external resources?|"
+        r"heading|section|title|label|output|rewritten?(\s+text)?)\s*:\s*",
+        re.IGNORECASE,
+    )
+    t = _label_pattern.sub("", t).strip()
+
+    # Strip lines that are purely a label (e.g. a line that is just "Abstract")
+    # only if it's the very first line and the rest of the text follows
+    lines = t.splitlines()
+    if len(lines) > 1:
+        first = lines[0].strip()
+        # If first line is a short all-words label (no sentence punctuation), drop it
+        if re.match(r"^[A-Za-z][A-Za-z\s:]{0,40}$", first) and not first.endswith("."):
+            t = "\n".join(lines[1:]).strip()
+
+    return t
 
 # -----------------------------------------------------------------------------
 # Streamlit setup
@@ -787,14 +792,14 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
                 "usage_notes": "Usage Notes",
                 "external_resources": "External Resources",
             }
-            _context_parts = []
+            _completed_sections = []
             for _f, _name in _section_names.items():
                 if _f == field:
                     continue
                 _text = (st.session_state.cicadas_form.get(_f) or "").strip()
                 if _text:
-                    _context_parts.append(f"{_name}:\n{_text}")
-            context_sections = "\n\n".join(_context_parts)
+                    _completed_sections.append(_name)
+            context_sections = ", ".join(_completed_sections) if _completed_sections else ""
             prompt = cicadas_feedback_prompt(
                 section_label=label,
                 user_text=current,
@@ -864,7 +869,13 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
                 suggestion = (st.session_state.get(ai_key(field)) or "").strip()
                 if suggestion:
-                    st.text_area("AI suggestion", value=suggestion, height=170, key=f"ai_view_{field}")
+                    st.markdown(f"**✨ AI Suggestion — {header}**")
+                    st.markdown(
+                        f"<div style='background:#f0f4ff;border-left:4px solid #4a90d9;"
+                        f"padding:12px 16px;border-radius:4px;white-space:pre-wrap;"
+                        f"font-size:0.95em;line-height:1.6'>{suggestion}</div>",
+                        unsafe_allow_html=True,
+                    )
                 else:
                     st.caption("No AI suggestion yet.")
 
