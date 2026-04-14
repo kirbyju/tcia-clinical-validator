@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import json
+import html
 import re
 import os
 import sys
@@ -172,10 +173,14 @@ def cicadas_feedback_prompt(section_label: str, user_text: str, context_sections
     return (
         f"Rewrite the following text for the {section_label} section of a TCIA CICADAS dataset description.\n\n"
         f"Text to rewrite:\n\"\"\"{user_text}\"\"\"\n\n"
+        f"Your goal is to significantly elevate the quality of this text. The rewrite should sound like it was written by an experienced medical researcher, not a first draft.\n\n"
         f"Rules:\n"
         f"- Output ONLY the rewritten text. No labels, headings, or preamble.\n"
         f"- Do not start with \"{section_label}:\" or any section name.\n"
-        f"- Do not invent facts not present in the original text.\n"
+        f"- Replace vague words like 'various', 'different', 'some', 'a lot', 'standard' with precise, specific language.\n"
+        f"- Use domain-appropriate medical and scientific terminology where it fits naturally.\n"
+        f"- Restructure weak or passive sentences into clear, authoritative ones.\n"
+        f"- Do not add new clinical details, numbers, or facts not present in the original text.\n"
         f"- Use a polished, professional scientific tone.\n"
         f"- {guidance_line}"
         f"{context_line}\n\n"
@@ -200,14 +205,12 @@ def _clean_ai_output(text: str) -> str:
     )
     t = _label_pattern.sub("", t).strip()
 
-    # Strip lines that are purely a label (e.g. a line that is just "Abstract")
-    # only if it's the very first line and the rest of the text follows
-    lines = t.splitlines()
-    if len(lines) > 1:
-        first = lines[0].strip()
-        # If first line is a short all-words label (no sentence punctuation), drop it
-        if re.match(r"^[A-Za-z][A-Za-z\s:]{0,40}$", first) and not first.endswith("."):
-            t = "\n".join(lines[1:]).strip()
+    # Strip wrapping quotes the model sometimes adds around the whole output
+    if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
+        t = t[1:-1].strip()
+
+    # Remove any remaining standalone quote characters
+    t = t.replace('"', '').replace("'", "").strip()
 
     return t
 
@@ -718,7 +721,7 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
         Follow the CICADAS checklist to ensure your dataset is comprehensive and optimally discoverable.
         """)
 
-        model_name = "qwen2:0.5b"
+        model_name = "qwen2:1.5b"
 
         st.markdown("---")
 
@@ -873,9 +876,10 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
                     st.markdown(
                         f"<div style='background:#f0f4ff;border-left:4px solid #4a90d9;"
                         f"padding:12px 16px;border-radius:4px;white-space:pre-wrap;"
-                        f"font-size:0.95em;line-height:1.6'>{suggestion}</div>",
+                        f"font-size:0.95em;line-height:1.6'>{html.escape(suggestion)}</div>",
                         unsafe_allow_html=True,
                     )
+                    st.warning("⚠️ AI suggestions may not always be accurate. Please review carefully and verify all information before using.")
                 else:
                     st.caption("No AI suggestion yet.")
 
