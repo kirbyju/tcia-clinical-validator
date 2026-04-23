@@ -1,15 +1,17 @@
 import streamlit as st
 import pandas as pd
 import json
-import html
 import re
 import os
 import sys
 import requests
 import zipfile
+import ast
+import datetime
 from io import BytesIO
+from docx import Document
 import importlib.util
-import subprocess
+import base64
 
 # -----------------------------------------------------------------------------
 # Dynamic imports from tcia-remapping-skill
@@ -1292,9 +1294,22 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 # =============================================================================
 elif st.session_state.phase == 1:
     st.header("Phase 1: Structure Mapping & Organization")
+    # Prepare script download link
+    with open("tcia_data_inventory.py", "rb") as f:
+        script_data = f.read()
+
     st.markdown("""
-Upload your source data files and map your columns to the TCIA target entities.
-""")
+    Upload your source data files and map your columns to the target entities.
+
+    As a convenience, you can download a helper script to create TSV inventories of your dataset directory for harmonization.
+    """)
+
+    st.download_button(
+        label="Try out this script",
+        data=script_data,
+        file_name="tcia_data_inventory.py",
+        mime="text/x-python"
+    )
 
     uploaded_file = st.file_uploader(
         "Upload your source data file (CSV, TSV, or Excel)",
