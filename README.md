@@ -2,10 +2,16 @@
 
 This repository contains tools designed to facilitate the submission of imaging and clinical research data to the National Cancer Institute (NCI).
 
+## Problem & Solution
+
+Researchers often have imaging and clinical data in diverse formats with inconsistent column names, non-standard values, and unclear entity relationships. These tools automate the transformation to the standardized NCI Imaging Submission Model, reducing manual effort and ensuring data quality.
+
 ## Tools Available
 
 ### 1. NCI Imaging Submission Validator (`tcia-remapper.py`)
 An interactive tool that helps transform clinical and imaging research data into the standardized NCI Imaging Submission Model using a tiered conversational workflow.
+
+**Purpose:** Convert messy, heterogeneous data into standardized submission-ready datasets.
 
 **To run:**
 ```bash
@@ -19,6 +25,8 @@ streamlit run tcia-remapper.py
 
 ### 2. TCIA Dataset Proposal Form (`tcia-dataset-proposal.py`)
 A streamlined application for researchers to propose new imaging collections or analysis results to TCIA.
+
+**Purpose:** Create structured proposal packages with pre-filled submission agreements to initiate new TCIA datasets.
 
 **To run:**
 ```bash
@@ -40,7 +48,9 @@ pip install -r requirements.txt
 
 ## Data Model & Ontology Support
 
-These tools are built upon the [NCI Imaging Submission Model](https://github.com/CBIIT/nci-imaging-submission-model).
+These tools standardize data across 12 entity types: Program, Dataset, Study, Series, Image, Patient, Specimen, Diagnosis, Treatment, Adverse Event, Biomarker, and Related Work. This 12-entity model enables rich description of imaging research while maintaining interoperability with NCI systems.
+
+The tools are built upon the [NCI Imaging Submission Model](https://github.com/CBIIT/nci-imaging-submission-model).
 
 Value standardization leverages the following ontologies:
 - **NCIt** (NCI Thesaurus) - Cancer-related terminology
