@@ -1397,7 +1397,7 @@ if st.session_state.phase == 0:
 
         st.markdown("---")
         
-        if st.button("➡️ Proceed to Phase 1", use_container_width=True, type="primary"):
+        if st.button("➡️ Proceed to CICADAS", use_container_width=True, type="primary"):
             st.session_state.phase = 1
             st.rerun()
 
@@ -1545,11 +1545,7 @@ elif st.session_state.phase == 1:
                     st.write("Please review and update either your Phase 0 metadata or your uploaded data.")
             
             # Show proceed button if mapping is approved
-            if st.session_state.structure_approved:
-                st.markdown("---")
-                if st.button("➡️ Proceed to Phase 2", type="primary", use_container_width=True):
-                    st.session_state.phase = 2
-                    st.rerun()
+            # Removed redundant proceed button as we are in the last phase
         
         except Exception as e:
             st.error(f"Error reading file: {str(e)}")
