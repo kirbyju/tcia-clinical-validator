@@ -166,52 +166,48 @@ def cicadas_feedback_prompt(section_label: str, user_text: str, context_sections
     guidance = (guidance or "").strip()
     context_sections = (context_sections or "").strip()
 
-    context_line = ""
+    context_block = ""
     if context_sections:
-        context_line = f"\nOther sections already written: {context_sections}. Do not repeat or reference them."
+        context_block = f"""\nOTHER COMPLETED SECTIONS (for coherence only \u2014 do NOT copy, repeat, or summarize their content):\n{context_sections}\n"""
 
-    guidance_line = guidance if guidance else "Follow standard CICADAS-style expectations for this section."
+    return f"""
+You are an expert technical editor for The Cancer Imaging Archive (TCIA).
+You are rewriting the user's text to be clearer, more specific, and more informative, using only the information they provided.
 
-    return (
-        f"Rewrite the following text for the {section_label} section of a TCIA CICADAS dataset description.\n\n"
-        f"Text to rewrite:\n\"\"\"{user_text}\"\"\"\n\n"
-        f"Your goal is to significantly elevate the quality of this text. The rewrite should sound like it was written by an experienced medical researcher, not a first draft.\n\n"
-        f"Rules:\n"
-        f"- Output ONLY the rewritten text. No labels, headings, or preamble.\n"
-        f"- Do not start with \"{section_label}:\" or any section name.\n"
-        f"- Replace vague words like 'various', 'different', 'some', 'a lot', 'standard' with precise, specific language.\n"
-        f"- Use domain-appropriate medical and scientific terminology where it fits naturally.\n"
-        f"- Restructure weak or passive sentences into clear, authoritative ones.\n"
-        f"- Do not add new clinical details, numbers, or facts not present in the original text.\n"
-        f"- Use a polished, professional scientific tone.\n"
-        f"- {guidance_line}"
-        f"{context_line}\n\n"
-        f"Rewritten text:"
-    )
+CICADAS is TCIA's structured dataset documentation framework. It requires precise, factual descriptions of study purpose, subject criteria, imaging acquisition, data processing, and appropriate research use.
+Section to improve: {section_label}
+
+Section requirements:
+{guidance if guidance else "Follow standard CICADAS-style expectations for this section."}
+{context_block}
+STRICT RULES:
+- Output ONLY the rewritten text for this section.
+- Do NOT include explanations, commentary, prefatory remarks, or concluding remarks.
+- Do NOT include labels, headings, bullets, Markdown, code blocks, or formatting of any kind.
+- Do NOT include the name of the section or any other section labels in your output. (Example: do not do "Abstract: This dataset is...". Just output the rewritten text itself.)
+- Do NOT invent or assume any facts not explicitly present in the original text.
+- Do NOT copy, repeat, or incorporate content from the other sections provided as context.
+- Use the other sections only to avoid contradictions and ensure consistent terminology.
+- If details are missing, improve clarity using general language without adding new specifics.
+- Keep the rewrite limited strictly to the content of this section.
+- Maintain or improve the level of informativeness without reducing substantive content.
+- Always use a polished, professional tone appropriate for a scientific dataset description.
+- Always follow all section-specific constraints and hard requirements.
+
+SECTION-SPECIFIC CONSTRAINTS:
+- Title must be a single line and must not contain colons.
+- Abstract must be 2\u20135 sentences in a single paragraph, without bullets.
+- The output must be a rewritten version of the user's input that improves clarity and precision while adhering to all constraints above.
+
+Text to rewrite:
+\"\"\"{user_text}\"\"\"
+""".strip()
 
 def _clean_ai_output(text: str) -> str:
     t = (text or "").strip()
     if not t:
         return ""
-
-    # Strip markdown code fences
-    t = t.replace("```", "").strip()
-
-    # Strip leaked section label prefixes like "Abstract: ...", "Heading: ...", etc.
-    # Matches any word or short phrase followed by a colon at the very start of the text
-    _label_pattern = re.compile(
-        r"^(abstract|introduction|methods?(?:\s*:\s*\S+)?|subject[s]? inclusion.*?|"
-        r"data acquisition|data analysis|usage notes?|external resources?|"
-        r"heading|section|title|label|output|rewritten?(\s+text)?)\s*:\s*",
-        re.IGNORECASE,
-    )
-    t = _label_pattern.sub("", t).strip()
-
-    # Strip wrapping quotes the model sometimes adds around the whole output
-    if (t.startswith('"') and t.endswith('"')) or (t.startswith("'") and t.endswith("'")):
-        t = t[1:-1].strip()
-
-    return t
+    return t.replace("```", "").strip()
 
 # -----------------------------------------------------------------------------
 # Streamlit setup
@@ -419,7 +415,118 @@ def render_dynamic_form(
 
     return form_data
 
-def reset_app():
+def _format_entity_records(entity_name: str, data: list) -> list[dict]:
+    """
+    Returns a list of dicts where dataset_description is exploded into
+    individual CICADAS section keys so every generator can render them properly.
+    """
+    import re as _re
+    result = []
+    for item in data:
+        record = {}
+        for k, v in item.items():
+            if k == "dataset_description" and v:
+                # Split the assembled markdown back into named sections
+                # Sections are separated by ## or ### headings
+                sections = _re.split(r"\n(?=#{1,3} )", str(v).strip())
+                for section in sections:
+                    lines = section.strip().splitlines()
+                    if not lines:
+                        continue
+                    heading_match = _re.match(r"#{1,3}\s+(.+)", lines[0])
+                    if heading_match:
+                        sec_name = heading_match.group(1).strip()
+                        sec_body = "\n".join(lines[1:]).strip()
+                        if sec_body:
+                            record[sec_name] = sec_body
+                    else:
+                        record[k] = v
+            else:
+                record[k] = v
+        result.append(record)
+    return result
+
+
+def generate_csv_bytes(entity_name: str, data: list, schema: dict) -> bytes:
+    """Generate CSV bytes from entity data, with dataset description exploded into sections."""
+    if not data:
+        return b""
+    records = _format_entity_records(entity_name, data)
+    df = pd.DataFrame(records)
+    return df.to_csv(index=False).encode("utf-8")
+
+
+def generate_pdf_bytes(entity_name: str, data: list) -> bytes:
+    """Generate a PDF summary for an entity using reportlab."""
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    from io import BytesIO
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter,
+                            leftMargin=inch, rightMargin=inch,
+                            topMargin=inch, bottomMargin=inch)
+    styles = getSampleStyleSheet()
+    story = []
+
+    title_style = ParagraphStyle("title", parent=styles["Title"], spaceAfter=16)
+    heading_style = ParagraphStyle("heading", parent=styles["Heading2"], spaceAfter=6)
+    body_style = ParagraphStyle("body", parent=styles["Normal"], spaceAfter=8, leading=14)
+
+    story.append(Paragraph(f"TCIA Metadata — {entity_name}", title_style))
+    story.append(Spacer(1, 0.2 * inch))
+
+    records = _format_entity_records(entity_name, data)
+
+    for idx, item in enumerate(records):
+        if len(records) > 1:
+            story.append(Paragraph(f"{entity_name} {idx + 1}", heading_style))
+        for k, v in item.items():
+            if not v:
+                continue
+            label = k.replace("_", " ").title()
+            safe_v = str(v).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            if len(str(v)) > 120:
+                story.append(Paragraph(f"<b>{label}</b>", body_style))
+                story.append(Paragraph(safe_v, body_style))
+            else:
+                story.append(Paragraph(f"<b>{label}:</b> {safe_v}", body_style))
+        story.append(Spacer(1, 0.15 * inch))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
+def generate_docx_bytes(entity_name: str, data: list) -> bytes:
+    """Generate a Word .docx for an entity using python-docx."""
+    from docx import Document as DocxDocument
+    from docx.shared import Pt
+    from io import BytesIO
+
+    records = _format_entity_records(entity_name, data)
+    doc = DocxDocument()
+
+    doc.add_heading(f"TCIA Metadata — {entity_name}", level=0)
+
+    for idx, item in enumerate(records):
+        if len(records) > 1:
+            doc.add_heading(f"{entity_name} {idx + 1}", level=2)
+        for k, v in item.items():
+            if not v:
+                continue
+            label = k.replace("_", " ").title()
+            p = doc.add_paragraph()
+            p.add_run(f"{label}: ").bold = True
+            p.add_run(str(v))
+        doc.add_paragraph()
+
+    buf = BytesIO()
+    doc.save(buf)
+    return buf.getvalue()
+
+
     keys_to_keep = []
     keys_to_remove = [k for k in st.session_state.keys() if k not in keys_to_keep]
     for key in keys_to_remove:
@@ -720,7 +827,7 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
         Follow the CICADAS checklist to ensure your dataset is comprehensive and optimally discoverable.
         """)
 
-        model_name = "qwen2:1.5b"
+        model_name = "qwen2:0.5b"
 
         st.markdown("---")
 
@@ -747,7 +854,6 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
             format_func=lambda k: dict(CICADAS_SECTIONS)[k],
             index=_current_section_idx,
             key="cicadas_section_selector",
-            help="Move directly to any CICADAS subsection. Your saved content is preserved across jumps.",
         )
         if _jump_selection != st.session_state.cicadas_section:
             st.session_state.cicadas_section = _jump_selection
@@ -755,11 +861,11 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
         _nav_back_col, _nav_next_col = st.columns(2)
         with _nav_back_col:
-            if st.button("⬅ Back", key="cicadas_nav_back", use_container_width=True, disabled=(_current_section_idx == 0), help="Navigate to the previous CICADAS section. Does not save — use Save & Next to save your work."):
+            if st.button("⬅ Back", key="cicadas_nav_back", use_container_width=True, disabled=(_current_section_idx == 0)):
                 st.session_state.cicadas_section = _section_keys[_current_section_idx - 1]
                 st.rerun()
         with _nav_next_col:
-            if st.button("Next ➡", key="cicadas_nav_next", use_container_width=True, disabled=(_current_section_idx == len(CICADAS_SECTIONS) - 1), help="Navigate to the next CICADAS section. Does not save — use Save & Next to save your work."):
+            if st.button("Next ➡", key="cicadas_nav_next", use_container_width=True, disabled=(_current_section_idx == len(CICADAS_SECTIONS) - 1)):
                 st.session_state.cicadas_section = _section_keys[_current_section_idx + 1]
                 st.rerun()
 
@@ -795,14 +901,14 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
                 "usage_notes": "Usage Notes",
                 "external_resources": "External Resources",
             }
-            _completed_sections = []
+            _context_parts = []
             for _f, _name in _section_names.items():
                 if _f == field:
                     continue
                 _text = (st.session_state.cicadas_form.get(_f) or "").strip()
                 if _text:
-                    _completed_sections.append(_name)
-            context_sections = ", ".join(_completed_sections) if _completed_sections else ""
+                    _context_parts.append(f"{_name}:\n{_text}")
+            context_sections = "\n\n".join(_context_parts)
             prompt = cicadas_feedback_prompt(
                 section_label=label,
                 user_text=current,
@@ -848,43 +954,31 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
             # Drawer under the section
             with st.expander("AI check", expanded=False):
-                st.caption("💡 The AI check panel helps improve wording for the current section. It does not automatically save or overwrite your text unless you choose Replace or Append.")
                 c1, c2, c3, c4 = st.columns([1.4, 1.0, 1.2, 1.4])
 
                 with c1:
-                    if st.button("Get AI rewrite", key=f"ai_run_{field}", use_container_width=True,
-                                 help="Runs the local Ollama model on this section only. Uses your current text and rewrites it for clarity, specificity, and professional tone. Other completed sections are passed as context for consistency only."):
+                    if st.button("Get AI rewrite", key=f"ai_run_{field}", use_container_width=True):
                         run_ai(field, header, guidance=guidance)
                         st.rerun()
 
                 with c2:
-                    if st.button("Clear", key=f"ai_clear_{field}", use_container_width=True,
-                                 help="Clears the current AI suggestion. Does not erase the text you have already typed in the section box."):
+                    if st.button("Clear", key=f"ai_clear_{field}", use_container_width=True):
                         clear_ai(field)
                         st.rerun()
 
                 with c3:
-                    if st.button("Replace", key=f"ai_replace_{field}", use_container_width=True,
-                                 help="Replaces your current section text with the AI suggestion. Useful when the AI version is better and you want to fully adopt it."):
+                    if st.button("Replace", key=f"ai_replace_{field}", use_container_width=True):
                         replace_with_ai(field)
                         st.rerun()
 
                 with c4:
-                    if st.button("Append", key=f"ai_append_{field}", use_container_width=True,
-                                 help="Adds the AI suggestion to the end of your current section text. Useful if you want to merge the suggestion with what you already wrote."):
+                    if st.button("Append", key=f"ai_append_{field}", use_container_width=True):
                         append_ai(field)
                         st.rerun()
 
                 suggestion = (st.session_state.get(ai_key(field)) or "").strip()
                 if suggestion:
-                    st.markdown(f"**✨ AI Suggestion — {header}**")
-                    st.markdown(
-                        f"<div style='background:#f0f4ff;border-left:4px solid #4a90d9;"
-                        f"padding:12px 16px;border-radius:4px;white-space:pre-wrap;"
-                        f"font-size:0.95em;line-height:1.6'>{html.escape(suggestion)}</div>",
-                        unsafe_allow_html=True,
-                    )
-                    st.warning("⚠️ AI suggestions may not always be accurate. Please review carefully and verify all information before using.")
+                    st.text_area("AI suggestion", value=suggestion, height=170, key=f"ai_view_{field}")
                 else:
                     st.caption("No AI suggestion yet.")
 
@@ -953,13 +1047,8 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
 
         _is_last_section = (_current_section_idx == len(CICADAS_SECTIONS) - 1)
         _save_btn_label = "Save & Finish CICADAS ➡" if _is_last_section else "Save & Next ➡"
-        _save_btn_help = (
-            "Saves everything and moves the workflow to the Investigator step."
-            if _is_last_section else
-            "Saves the current section content and moves to the next CICADAS section."
-        )
 
-        if st.button(_save_btn_label, type="primary", use_container_width=True, help=_save_btn_help):
+        if st.button(_save_btn_label, type="primary", use_container_width=True):
             st.session_state.cicadas = dict(st.session_state.cicadas_form)
 
             desc_parts = []
@@ -1258,14 +1347,60 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
                 data_exists = len(st.session_state.metadata.get(entity_key, [])) > 0
 
                 if data_exists and filepath and os.path.exists(filepath):
-                    with open(filepath, "r") as f:
+                    dl_tsv, dl_csv, dl_pdf, dl_docx = st.columns(4)
+                    base_name = entity_key.lower()
+
+                    with dl_tsv:
+                        with open(filepath, "r") as f:
+                            st.download_button(
+                                label="⬇ TSV",
+                                data=f.read(),
+                                file_name=f"{base_name}.tsv",
+                                mime="text/tab-separated-values",
+                                key=f"dl_tsv_{entity_key}",
+                                use_container_width=True,
+                            )
+
+                    with dl_csv:
+                        csv_bytes = generate_csv_bytes(entity_key, st.session_state.metadata.get(entity_key, []), schema)
                         st.download_button(
-                            label=f"Download {filename}",
-                            data=f.read(),
-                            file_name=filename,
-                            mime="text/tab-separated-values",
-                            key=f"dl_btn_{entity_key}",
+                            label="⬇ CSV",
+                            data=csv_bytes,
+                            file_name=f"{base_name}.csv",
+                            mime="text/csv",
+                            key=f"dl_csv_{entity_key}",
+                            use_container_width=True,
                         )
+
+                    with dl_pdf:
+                        try:
+                            pdf_bytes = generate_pdf_bytes(entity_key, st.session_state.metadata.get(entity_key, []))
+                            st.download_button(
+                                label="⬇ PDF",
+                                data=pdf_bytes,
+                                file_name=f"{base_name}.pdf",
+                                mime="application/pdf",
+                                key=f"dl_pdf_{entity_key}",
+                                use_container_width=True,
+                            )
+                        except Exception as e:
+                            st.button("⬇ PDF", disabled=True, key=f"dl_pdf_err_{entity_key}", use_container_width=True, help=str(e))
+
+                    with dl_docx:
+                        try:
+                            docx_bytes = generate_docx_bytes(entity_key, st.session_state.metadata.get(entity_key, []))
+                            st.download_button(
+                                label="⬇ Word",
+                                data=docx_bytes,
+                                file_name=f"{base_name}.docx",
+                                mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                                key=f"dl_docx_{entity_key}",
+                                use_container_width=True,
+                            )
+                        except Exception as e:
+                            st.button("⬇ Word", disabled=True, key=f"dl_docx_err_{entity_key}", use_container_width=True, help=str(e))
+
+                    st.caption(f"📄 Download the {label} metadata in your preferred format. TSV and CSV are best for spreadsheet tools; PDF and Word are best for sharing or documentation.")
                 else:
                     st.button(f"Download {filename}", key=f"dl_btn_disabled_{entity_key}", disabled=True)
 
@@ -1280,7 +1415,14 @@ NCI/NIH program (e.g., TCGA, CPTAC, APOLLO, Biobank).
                                 st.write(f"  - {k}: {v}")
                     else:
                         for k, v in entity_data[0].items():
-                            st.write(f"**{k}:** {v}")
+                            if k == "dataset_abstract":
+                                st.markdown("## Abstract")
+                                st.write(v or "_Not provided_")
+                            elif k == "dataset_description":
+                                st.markdown("## Dataset Description")
+                                st.markdown(v or "_Not provided_")
+                            else:
+                                st.write(f"**{k}:** {v}")
                 else:
                     st.warning(f"No {entity_key.lower()} information provided.")
 
