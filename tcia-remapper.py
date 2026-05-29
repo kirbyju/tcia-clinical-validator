@@ -270,48 +270,28 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
 
         if prop_name in permissible_values:
             options = permissible_values[prop_name]
-            # Handle list of dicts from MDF parser
             if options and isinstance(options[0], dict):
                 option_labels = [f"{o['value']}" for o in options]
-                if not is_required:
-                    option_labels = [""] + option_labels
-                
-                if prop_name == 'adult_or_childhood_study':
-                    # Ensure default_val is a list for multiselect
-                    if not isinstance(default_val, list):
-                        if isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
-                            try:
-                                default_val = ast.literal_eval(default_val)
-                            except:
-                                default_val = [default_val] if default_val else []
-                        else:
-                            default_val = [default_val] if default_val else []
-
-                    selected = st.multiselect(label, options=option_labels, default=default_val, help=help_text, disabled=disabled)
-                else:
-                    # Find index of default value
-                    current_val = str(default_val) if default_val else ""
-                    try:
-                        default_idx = option_labels.index(current_val)
-                    except ValueError:
-                        default_idx = 0
-
-                    selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
-                form_data[prop_name] = selected
             else:
-                if prop_name == 'adult_or_childhood_study':
-                    if not isinstance(default_val, list):
-                        default_val = [default_val] if default_val else []
-                    selected = st.multiselect(label, options=options, default=default_val, help=help_text, disabled=disabled)
-                else:
-                    if not is_required:
-                        options = [""] + options
-                    try:
-                        default_idx = options.index(default_val)
-                    except ValueError:
-                        default_idx = 0
-                    selected = st.selectbox(label, options=options, index=default_idx, help=help_text, disabled=disabled)
-                form_data[prop_name] = selected
+                option_labels = options
+            is_multiselect = prop_name in ['adult_or_childhood_study', 'why_tcia', 'disease_site', 'diagnosis']
+            if is_multiselect:
+                if not isinstance(default_val, list):
+                    if isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
+                        try: default_val = ast.literal_eval(default_val)
+                        except: default_val = []
+                    elif isinstance(default_val, str) and default_val:
+                        default_val = [v.strip() for v in default_val.split(',')]
+                    else: default_val = [default_val] if default_val else []
+                default_val = [v for v in default_val if v in option_labels]
+                selected = st.multiselect(label, options=option_labels, default=default_val, help=help_text, disabled=disabled)
+            else:
+                if not is_required: option_labels = [""] + option_labels
+                current_val = str(default_val) if default_val else ""
+                try: default_idx = option_labels.index(current_val)
+                except ValueError: default_idx = 0
+                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
+            form_data[prop_name] = selected
         elif "description" in prop_name or "abstract" in prop_name or "acknowledgements" in prop_name:
             form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text, disabled=disabled)
         elif "number" in prop_name or "count" in prop_name or "size" in prop_name:
@@ -382,7 +362,7 @@ Welcome to the NCI Imaging Submission Validator. This tool helps you transform a
 """)
 
 # Show current phase
-phase_names = ["Phase 0: Summary Metadata", "Phase 1: Column Headers", "Phase 2: Permissible Values"]
+phase_names = ["Summary Metadata", "CICADAS", "Tabular Data Standardization"]
 st.sidebar.title("Progress")
 st.sidebar.write(f"**Current Phase:** {phase_names[st.session_state.phase]}")
 
@@ -392,13 +372,13 @@ if st.sidebar.button("🔄 Reset App"):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Navigation")
-if st.sidebar.button("📋 Phase 0: Summary Metadata"):
+if st.sidebar.button("📋 Summary Metadata"):
     st.session_state.phase = 0
     st.rerun()
-if st.sidebar.button("🔗 Phase 1: Column Headers"):
+if st.sidebar.button("📝 CICADAS"):
     st.session_state.phase = 1
     st.rerun()
-if st.sidebar.button("✅ Phase 2: Permissible Values"):
+if st.sidebar.button("📊 Tabular Data Standardization"):
     st.session_state.phase = 2
     st.rerun()
 
@@ -406,7 +386,7 @@ if st.sidebar.button("✅ Phase 2: Permissible Values"):
 # PHASE 0: SUMMARY METADATA COLLECTION
 # ============================================================================
 if st.session_state.phase == 0:
-    st.header("Phase 0: Summary Metadata")
+    st.header("Summary Metadata")
     st.markdown("""
     Before remapping your source files, let's collect high-level metadata for your submission.
     We'll go through this one entity at a time: **Start → Program → Dataset → Investigator → Related Work**
@@ -416,7 +396,7 @@ if st.session_state.phase == 0:
         "Start": "🚀 Start",
         "Program": "📁 Program",
         "Dataset": "📊 Dataset",
-        "CICADAS": "📋 CICADAS",
+
         "Investigator": "👤 Investigator",
         "Related_Work": "📚 Related Work",
         "Review": "📝 Review & Generate"
@@ -445,7 +425,7 @@ if st.session_state.phase == 0:
 
     # TAB 0: Start
     if st.session_state.phase0_step == "Start":
-        st.subheader("Welcome to Phase 0")
+        st.subheader("Welcome to Summary Metadata")
         st.markdown("""
         Before we begin, would you like to import your Dataset Proposal Form?
         Importing a proposal will automatically fill in many of the fields for you, saving you time.
@@ -476,32 +456,27 @@ if st.session_state.phase == 0:
                     import_df = pd.read_csv(import_file, sep='\t')
 
                 if not import_df.empty:
-                    proposal_data = import_df.iloc[0].to_dict()
+                    proposal_data = {}
+                    for k, v in import_df.iloc[0].to_dict().items():
+                        if pd.isna(v) or str(v).lower() == 'nan':
+                            proposal_data[k] = ""
+                        elif isinstance(v, str) and v.startswith('[') and v.endswith(']'):
+                            try: proposal_data[k] = ast.literal_eval(v)
+                            except: proposal_data[k] = v
+                        else:
+                            proposal_data[k] = v
                     st.session_state.proposal_raw_data = proposal_data
-
-                    # Map Dataset
-                    study_val = proposal_data.get('adult_or_childhood_study', '')
-                    if isinstance(study_val, str) and study_val.startswith('[') and study_val.endswith(']'):
-                        try:
-                            study_val = ast.literal_eval(study_val)
-                        except:
-                            pass
-
-                    # Handle funding sources
-                    f_agency = proposal_data.get('funding_agency', '')
-                    f_prog = proposal_data.get('funding_source_program_name', '')
-                    f_grant = proposal_data.get('grant_id', '')
-
                     ds_data = {
                         'dataset_long_name': proposal_data.get('Title', ''),
                         'dataset_short_name': proposal_data.get('Nickname', ''),
                         'dataset_abstract': proposal_data.get('Abstract', ''),
-                        'dataset_description': '', # No longer import description from proposal
-                        'adult_or_childhood_study': study_val,
+                        'dataset_description': '',
+                        'adult_or_childhood_study': proposal_data.get('adult_or_childhood_study', []),
                         'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or '',
-                        'funding_agency': f_agency,
-                        'funding_source_program_name': f_prog,
-                        'grant_id': f_grant
+                        'funding_agency': proposal_data.get('funding_agency', ''),
+                        'funding_source_program_name': proposal_data.get('funding_source_program_name', ''),
+                        'grant_id': proposal_data.get('grant_id', ''),
+                        'why_tcia': proposal_data.get('why_tcia', [])
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -658,7 +633,7 @@ if st.session_state.phase == 0:
 
                 st.session_state.metadata['Dataset'] = [dataset_data]
                 st.toast("✅ Basic Dataset information saved!")
-                st.session_state.phase0_step = 'CICADAS'
+                st.session_state.phase0_step = 'Investigator'
                 st.rerun()
 
     # TAB 3: CICADAS
@@ -870,7 +845,10 @@ if st.session_state.phase == 0:
             for idx, inv in enumerate(st.session_state.metadata['Investigator']):
                 col1, col2 = st.columns([6, 1])
                 with col1:
-                    st.write(f"{idx+1}. {inv.get('first_name', '')} {inv.get('last_name', '')} ({inv.get('email', '')}) - {inv.get('organization_name', '')}")
+                    email = inv.get('email', ''); orcid = inv.get('person_orcid', '')
+                    contact_info = email if email else orcid
+                    display_contact = f" ({contact_info})" if contact_info else ""
+                    st.write(f"{idx+1}. {inv.get('first_name', '')} {inv.get('last_name', '')}{display_contact} - {inv.get('organization_name', '')}")
                 with col2:
                     if st.button("🗑️", key=f"del_inv_{idx}"):
                         st.session_state.metadata['Investigator'].pop(idx)
@@ -1386,7 +1364,9 @@ if st.session_state.phase == 0:
                         for idx, item in enumerate(entity_data):
                             st.write(f"**{entity_key} {idx+1}:**")
                             for key, value in item.items():
-                                display_val = ", ".join(map(str, value)) if isinstance(value, list) else value
+                                if isinstance(value, list): display_val = ", ".join(map(str, value))
+                                elif pd.isna(value) or str(value).lower() == 'nan': display_val = ""
+                                else: display_val = value
                                 st.write(f"  - {key}: {display_val}")
                     else: # Program, Dataset
                         for key, value in entity_data[0].items():
@@ -1402,314 +1382,136 @@ if st.session_state.phase == 0:
             st.rerun()
 
 # ============================================================================
-# PHASE 1: COLUMN HEADERS
+# PHASE 1: CICADAS
 # ============================================================================
 elif st.session_state.phase == 1:
-    st.header("Phase 1: Column Headers")
+    st.header("CICADAS Dataset Description")
     st.markdown("""
-    Upload your source data files and map your columns to the target entities.
+    Follow the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to ensure your dataset
+    is comprehensive and optimally discoverable.
     """)
-    
-    # File upload
-    uploaded_file = st.file_uploader(
-        "Upload your source data file (CSV, TSV, or Excel)",
-        type=['csv', 'tsv', 'xlsx', 'xls']
-    )
-    
-    if uploaded_file is not None:
-        # Read the file
-        try:
-            df = None
-            if uploaded_file.name.endswith('.csv'):
-                df = pd.read_csv(uploaded_file)
-            elif uploaded_file.name.endswith('.tsv'):
-                df = pd.read_csv(uploaded_file, sep='\t')
-            else:
-                # Excel file
-                excel_file = pd.ExcelFile(uploaded_file)
-                sheet_names = excel_file.sheet_names
-                if len(sheet_names) > 1:
-                    selected_sheet = st.selectbox("Select which sheet to process:", sheet_names)
-                    df = pd.read_excel(uploaded_file, sheet_name=selected_sheet)
-                else:
-                    df = pd.read_excel(uploaded_file)
-            
-            if df is not None:
-                # --- Basic Data Cleaning ---
-                # 1. Drop completely empty rows and columns
-                df = df.dropna(how='all').dropna(axis=1, how='all')
-                
-                # 2. Check for potential title rows (heuristic: first row has mostly NaNs)
-                # If the first non-empty row has fewer non-NaN values than the next row, 
-                # it might be a title row.
-                if len(df) > 1:
-                    first_row_non_nans = df.iloc[0].count()
-                    second_row_non_nans = df.iloc[1].count()
-                    if first_row_non_nans == 1 and second_row_non_nans > 1:
-                        st.info("💡 Detected a potential title row. Using the next row as header.")
-                        new_header = df.iloc[1]
-                        df = df[2:]
-                        df.columns = new_header
-                
-                # 3. Strip whitespace from headers and string values
-                df.columns = [str(c).strip() for c in df.columns]
-                df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+    with st.form("cicadas_form"):
+        st.write("### Abstract")
+        c_abstract = st.text_area("Abstract (Max 1,000 Characters)*", value=st.session_state.cicadas.get('abstract', ''), max_chars=1000, label_visibility="collapsed")
+        st.write("### Introduction")
+        c_intro = st.text_area("Introduction", value=st.session_state.cicadas.get('introduction', ''), label_visibility="collapsed")
+        st.write("### Methods")
+        c_m_subjects = st.text_area("Subject Inclusion and Exclusion Criteria", value=st.session_state.cicadas.get('methods_subjects', ''))
+        c_m_acquisition = st.text_area("Data Acquisition", value=st.session_state.cicadas.get('methods_acquisition', ''))
+        c_m_analysis = st.text_area("Data Analysis", value=st.session_state.cicadas.get('methods_analysis', ''))
+        st.write("### Usage Notes")
+        c_usage = st.text_area("Usage Notes", value=st.session_state.cicadas.get('usage_notes', ''))
+        st.write("### External Resources")
+        c_ext = st.text_area("External Resources (Optional)", value=st.session_state.cicadas.get('external_resources', ''))
+        if st.form_submit_button("Save & Next"):
+            st.session_state.cicadas = {'abstract': c_abstract, 'introduction': c_intro, 'methods_subjects': c_m_subjects, 'methods_acquisition': c_m_acquisition, 'methods_analysis': c_m_analysis, 'usage_notes': c_usage, 'external_resources': c_ext}
+            desc = []
+            if c_intro: desc.append(f"## Introduction
+{c_intro}")
+            methods_content = ""
+            if c_m_subjects: methods_content += f"### Subject Inclusion and Exclusion Criteria
+{c_m_subjects}
 
-                st.session_state.uploaded_data = df
-                st.success(f"✅ Loaded data with {len(df)} rows and {len(df.columns)} columns")
-                
-                # Show preview
-                with st.expander("Preview Data", expanded=True):
-                    st.dataframe(df.head(10))
-            
-            st.markdown("---")
-            st.subheader("Column Mapping")
-            st.markdown("Map your source columns to the target properties.")
-            
-            # Get all target properties from schema
-            all_properties = {}
-            excluded_entities = list(st.session_state.metadata.keys())
+"
+            if c_m_acquisition: methods_content += f"### Data Acquisition
+{c_m_acquisition}
 
-            for entity_name, properties in schema.items():
-                if entity_name in excluded_entities:
-                    continue
-                for prop in properties:
-                    prop_name = prop['Property']
-                    # Hide linkage properties (containing a dot) from the mapping UI
-                    # These are automatically handled based on primary ID mappings
-                    if "." in prop_name:
-                        continue
-                    # print(f"DEBUG: prop_name={prop_name}")
-                    all_properties[f"{entity_name}.{prop_name}"] = prop
-            
-            # Create mapping interface
-            st.write("**Map Source Columns to Target Properties:**")
-            
-            mapping_data = []
-            for col in df.columns:
-                cols = st.columns([3, 4, 2])
-                with cols[0]:
-                    st.write(f"**{col}**")
-                    # Show sample values
-                    sample_vals = df[col].dropna().unique()[:3]
-                    st.caption(f"Sample: {', '.join(map(str, sample_vals))}")
-                
-                with cols[1]:
-                    # Get current mapping if exists
-                    current_mapping = None
-                    for target, source in st.session_state.column_mapping.items():
-                        if source == col:
-                            current_mapping = target
-                            break
-                    
-                    # Property selector
-                    property_options = ["(Skip this column)"] + list(all_properties.keys())
-                    default_index = 0
-                    if current_mapping and current_mapping in property_options:
-                        default_index = property_options.index(current_mapping)
-                    
-                    selected = st.selectbox(
-                        "Target Property",
-                        options=property_options,
-                        index=default_index,
-                        key=f"map_{col}",
-                        label_visibility="collapsed"
-                    )
-                    
-                    if selected != "(Skip this column)":
-                        mapping_data.append((selected, col))
-                
-                with cols[2]:
-                    if selected != "(Skip this column)" and selected in all_properties:
-                        prop_info = all_properties[selected]
-                        if prop_info.get('Required/optional') == 'R':
-                            st.write("✅ Required")
-                        else:
-                            st.write("⚪ Optional")
-            
-            st.markdown("---")
-            
-            if st.button("✅ Confirm Mapping", type="primary"):
-                # Save mapping
-                st.session_state.column_mapping = {target: source for target, source in mapping_data}
-                st.session_state.structure_approved = True
-                st.success("✅ Column mapping confirmed!")
-                st.info("Proceeding to Phase 2: Value Standardization...")
-                
-                # Check for conflicts with Phase 0 metadata
-                conflicts = check_metadata_conflict(st.session_state.metadata, df, st.session_state.column_mapping)
-                if conflicts:
-                    st.warning("⚠️ Detected conflicts between uploaded data and Phase 0 metadata:")
-                    for conflict in conflicts:
-                        st.write(f"- {conflict['entity']}.{conflict['property']}: Initial='{conflict['initial_value']}' vs New='{conflict['new_value']}'")
-                    st.write("Please review and update either your Phase 0 metadata or your uploaded data.")
-            
-            # Show proceed button if mapping is approved
-            # Removed redundant proceed button as we are in the last phase
-        
-        except Exception as e:
-            st.error(f"Error reading file: {str(e)}")
-    else:
-        st.info("👆 Please upload a file to begin structure mapping.")
+"
+            if c_m_analysis: methods_content += f"### Data Analysis
+{c_m_analysis}
+
+"
+            if methods_content: desc.append(f"## Methods
+{methods_content}")
+            if c_usage: desc.append(f"## Usage Notes
+{c_usage}")
+            if c_ext: desc.append(f"## External Resources
+{c_ext}")
+            if st.session_state.metadata['Dataset']:
+                ds = st.session_state.metadata['Dataset'][0]
+                ds.update({'dataset_abstract': c_abstract, 'dataset_description': "
+
+".join(desc), 'introduction': c_intro, 'methods_subjects': c_m_subjects, 'methods_acquisition': c_m_acquisition, 'methods_analysis': c_m_analysis, 'usage_notes': c_usage, 'external_resources': c_ext})
+            st.toast("✅ CICADAS information saved!")
+            st.session_state.phase = 2; st.rerun()
 
 # ============================================================================
-# PHASE 2: PERMISSIBLE VALUES
+# PHASE 2: TABULAR DATA STANDARDIZATION
 # ============================================================================
 elif st.session_state.phase == 2:
-    st.header("Phase 2: Permissible Values")
-    st.markdown("""
-    Now let's standardize your data values to match permissible values using ontology-enhanced matching.
-    """)
-    
-    if st.session_state.uploaded_data is None:
-        st.warning("No data uploaded. Please go back to Phase 1.")
-    elif not st.session_state.structure_approved:
-        st.warning("Structure mapping not confirmed. Please complete Phase 1 first.")
-    else:
-        df = st.session_state.uploaded_data
-
-        # --- Automatic Linkage Handling ---
-        # 1. Identify primary ID mappings from the current column mapping
-        primary_id_mappings = {}
-        for target, source in st.session_state.column_mapping.items():
-            if "." in target:
-                entity, prop = target.split(".", 1)
-                # Identify if this is the primary ID for the entity (e.g., Subject.subject_id)
-                if prop.lower() == f"{entity.lower()}_id" or prop.lower() == "id":
-                    primary_id_mappings[entity.lower()] = source
-        
-        # 2. Automatically map any linkage properties that point to these identified entities
-        for entity_name, properties in schema.items():
-            for prop in properties:
-                prop_name = prop['Property']
-                if "." in prop_name:
-                    # Linkage properties are in format 'target_entity.property'
-                    target_entity_name = prop_name.split(".")[0].lower()
-                    if target_entity_name in primary_id_mappings:
-                        full_target_prop = f"{entity_name}.{prop_name}"
-                        # Only auto-fill if not already manually mapped
-                        if full_target_prop not in st.session_state.column_mapping:
-                            st.session_state.column_mapping[full_target_prop] = primary_id_mappings[target_entity_name]
-
-        # Split data by schema
-        split_data = split_data_by_schema(df, st.session_state.column_mapping, schema)
-
-        # Auto-populate linkages to Phase 0 entities based on relationships
-        for entity_name, entity_df in split_data.items():
-            for rel_name, rel_info in relationships.items():
-                for end in rel_info.get('Ends', []):
-                    if end['Src'] == entity_name and end['Dst'] in st.session_state.metadata:
-                        dst_meta = st.session_state.metadata[end['Dst']]
-                        if dst_meta:
-                            dst_lower = end['Dst'].lower()
-                            link_val = dst_meta[0].get(f"{dst_lower}_short_name") or dst_meta[0].get(f"{dst_lower}_id")
-                            if link_val:
-                                linkage_prop = next((p['Property'] for p in schema.get(entity_name, []) if p['Property'].lower().startswith(f"{dst_lower}.")), None)
-                                if linkage_prop and linkage_prop not in entity_df.columns:
-                                    entity_df[linkage_prop] = link_val
-        
-        st.write(f"**Identified {len(split_data)} target entities from your data.**")
-
-        # Check for missing links
-        missing_links = check_missing_links(split_data, schema, relationships)
-        # Filter out links to Phase 0 entities as they are handled automatically
-        # AND only report missing links to entities that are actually present in the uploaded data
-        actual_missing = [
-            l for l in missing_links
-            if l['target_entity'] not in st.session_state.metadata
-            and l['target_entity'] in split_data
-        ]
-
-        if actual_missing:
-            st.warning("⚠️ Some uploaded entities are missing required linkages to each other:")
-            for l in actual_missing:
-                st.write(f"- Entity **{l['entity']}** is missing linkage to **{l['target_entity']}** (Property: `{l['property']}`)")
-            st.info("Please go back to Phase 1 and map a column to these linkage properties.")
-        
-        for entity_name, entity_df in split_data.items():
-            with st.expander(f"📊 {entity_name} ({len(entity_df)} rows)", expanded=True):
-                st.dataframe(entity_df.head(10))
-                
-                # Validate values
-                report, corrections = validate_dataframe(entity_df, entity_name, schema, permissible_values)
-                
-                if report:
-                    st.write("**Validation Issues Found:**")
-                    for item in report[:10]:  # Show first 10
-                        st.write(f"- {item}")
-                    
-                    if len(report) > 10:
-                        st.info(f"... and {len(report) - 10} more issues")
-                    
-                    if corrections:
-                        st.write("**Suggested Corrections:**")
-                        for col, col_corrections in corrections.items():
-                            st.write(f"Column: **{col}**")
-                            for old_val, new_val in list(col_corrections.items())[:5]:
-                                extra_info = ""
-                                if col in permissible_values:
-                                    matches = permissible_values[col]
-                                    if matches and isinstance(matches[0], dict):
-                                        match = next((m for m in matches if m['value'] == new_val), None)
-                                        if match:
-                                            parts = []
-                                            if 'code' in match and match['code']:
-                                                parts.append(f"Code: {match['code']}")
-                                            if 'definition' in match and match['definition']:
-                                                # Truncate definition if too long
-                                                defn = match['definition']
-                                                if len(defn) > 100:
-                                                    defn = defn[:97] + "..."
-                                                parts.append(f"Def: {defn}")
-                                            if parts:
-                                                extra_info = " (" + " | ".join(parts) + ")"
-                                
-                                st.write(f"  - '{old_val}' → **{new_val}**{extra_info}")
-                        
-                        if st.button(f"Apply Corrections to {entity_name}", key=f"apply_{entity_name}"):
-                            # Apply corrections
-                            for col, col_corrections in corrections.items():
-                                entity_df[col] = entity_df[col].replace(col_corrections)
-                            st.success(f"✅ Applied corrections to {entity_name}")
-                            
-                            # Save the corrected dataframe
-                            output_file = os.path.join(st.session_state.output_dir, f"{entity_name.lower()}.tsv")
-                            entity_df.to_csv(output_file, sep='\t', index=False)
-                            st.success(f"✅ Saved to {output_file}")
-                            
-                            # Offer download
-                            with open(output_file, 'r') as f:
-                                st.download_button(
-                                    label=f"Download {entity_name}.tsv",
-                                    data=f.read(),
-                                    file_name=f"{entity_name.lower()}.tsv",
-                                    mime="text/tab-separated-values",
-                                    key=f"download_{entity_name}"
-                                )
-                else:
-                    st.success("✅ All values are valid!")
-                    
-                    # Save the dataframe
-                    output_file = os.path.join(st.session_state.output_dir, f"{entity_name.lower()}.tsv")
-                    entity_df.to_csv(output_file, sep='\t', index=False)
-                    st.success(f"✅ Saved to {output_file}")
-                    
-                    # Offer download
-                    with open(output_file, 'r') as f:
-                        st.download_button(
-                            label=f"Download {entity_name}.tsv",
-                            data=f.read(),
-                            file_name=f"{entity_name.lower()}.tsv",
-                            mime="text/tab-separated-values",
-                            key=f"download_{entity_name}"
-                        )
-        
-        st.markdown("---")
-        st.success("🎉 Validation and transformation complete! All TSV files have been generated.")
-        
-        if st.button("🔄 Start New Validation"):
-            reset_app()
-            st.rerun()
+    st.header("Tabular Data Standardization")
+    uploaded_file = st.file_uploader("Upload your source data file (CSV, TSV, or Excel)", type=['csv', 'tsv', 'xlsx', 'xls'])
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'): df = pd.read_csv(uploaded_file)
+            elif uploaded_file.name.endswith('.tsv'): df = pd.read_csv(uploaded_file, sep='	')
+            else:
+                excel = pd.ExcelFile(uploaded_file)
+                df = pd.read_excel(uploaded_file, sheet_name=st.selectbox("Select sheet:", excel.sheet_names) if len(excel.sheet_names) > 1 else excel.sheet_names[0])
+            if df is not None:
+                df = df.dropna(how='all').dropna(axis=1, how='all')
+                if len(df) > 1 and df.iloc[0].count() == 1 and df.iloc[1].count() > 1:
+                    header = df.iloc[1]; df = df[2:]; df.columns = header
+                df.columns = [str(c).strip() for c in df.columns]
+                df = df.map(lambda x: x.strip() if isinstance(x, str) else x)
+                st.session_state.uploaded_data = df
+                st.success(f"✅ Loaded data"); st.dataframe(df.head(10))
+            st.subheader("Column Mapping")
+            all_props = {}
+            for e, props in schema.items():
+                if e in st.session_state.metadata: continue
+                for p in props:
+                    if "." not in p['Property']: all_props[f"{e}.{p['Property']}"] = p
+            mapping_data = []
+            for col in df.columns:
+                c1, c2, c3 = st.columns([3, 4, 2])
+                with c1: st.write(f"**{col}**")
+                with c2:
+                    curr = next((t for t, s in st.session_state.column_mapping.items() if s == col), "(Skip this column)")
+                    sel = st.selectbox("Target", options=["(Skip this column)"] + list(all_props.keys()), index=(["(Skip this column)"] + list(all_props.keys())).index(curr) if curr in (["(Skip this column)"] + list(all_props.keys())) else 0, key=f"m_{col}", label_visibility="collapsed")
+                    if sel != "(Skip this column)": mapping_data.append((sel, col))
+                with c3:
+                    if sel != "(Skip this column)": st.write("✅ Required" if all_props[sel].get('Required/optional') == 'R' else "⚪ Optional")
+            if st.button("✅ Confirm Mapping", type="primary"):
+                st.session_state.column_mapping = {t: s for t, s in mapping_data}
+                st.session_state.structure_approved = True
+                conflicts = check_metadata_conflict(st.session_state.metadata, df, st.session_state.column_mapping)
+                if conflicts:
+                    for c in conflicts: st.warning(f"Conflict: {c['entity']}.{c['property']}")
+            if st.session_state.structure_approved:
+                st.subheader("Value Standardization")
+                df = st.session_state.uploaded_data
+                p_ids = {t.split(".")[0].lower(): s for t, s in st.session_state.column_mapping.items() if "." in t and (t.split(".")[1].lower() == f"{t.split('.')[0].lower()}_id" or t.split(".")[1].lower() == "id")}
+                for e, props in schema.items():
+                    for p in props:
+                        if "." in p['Property']:
+                            target = p['Property'].split(".")[0].lower()
+                            if target in p_ids:
+                                full = f"{e}.{p['Property']}"
+                                if full not in st.session_state.column_mapping: st.session_state.column_mapping[full] = p_ids[target]
+                split_data = split_data_by_schema(df, st.session_state.column_mapping, schema)
+                for e, edf in split_data.items():
+                    for r, ri in relationships.items():
+                        for end in ri.get('Ends', []):
+                            if end['Src'] == e and end['Dst'] in st.session_state.metadata:
+                                meta = st.session_state.metadata[end['Dst']]
+                                if meta:
+                                    val = meta[0].get(f"{end['Dst'].lower()}_short_name") or meta[0].get(f"{end['Dst'].lower()}_id")
+                                    prop = next((p['Property'] for p in schema.get(e, []) if p['Property'].lower().startswith(f"{end['Dst'].lower()}.")), None)
+                                    if prop and prop not in edf.columns: edf[prop] = val
+                for e, edf in split_data.items():
+                    with st.expander(f"📊 {e}"):
+                        rep, corr = validate_dataframe(edf, e, schema, permissible_values)
+                        if rep:
+                            for item in rep[:5]: st.write(f"- {item}")
+                            if corr and st.button(f"Apply to {e}"):
+                                for col, cdict in corr.items(): edf[col] = edf[col].replace(cdict)
+                                st.success("Applied")
+                        output = os.path.join(st.session_state.output_dir, f"{e.lower()}.tsv")
+                        edf.to_csv(output, sep='	', index=False)
+                        st.download_button(f"Download {e}.tsv", open(output).read(), f"{e.lower()}.tsv")
+                if st.button("🔄 Reset"): reset_app(); st.rerun()
+        except Exception as e: st.error(f"Error: {e}")
 
 # Footer
 st.markdown("---")

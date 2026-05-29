@@ -4474,5 +4474,19 @@
       "definition": "A non-seminomatous malignant germ cell tumor composed of primitive germ cells. It is the most common malignant germ cell tumor in the pediatric population. It occurs in the infant testis, ovary, sacrococcygeal region, vagina, uterus, prostate, abdomen, liver, retroperitoneum, thorax, and pineal/third ventricle. The tumor mimics the yolk sac of the embryo and produces alpha-fetoprotein (AFP). Treatment includes: surgical resection, radiation, and chemotherapy. This tumor is very responsive to chemotherapy regimens that include cisplatinum.",
       "origin": "caDSR 14905532"
     }
+  ],
+  "adult_or_childhood_study": [
+    {
+      "value": "Adolescent and Young Adult",
+      "origin": "TCIA"
+    },
+    {
+      "value": "Adult",
+      "origin": "TCIA"
+    },
+    {
+      "value": "Pediatric",
+      "origin": "TCIA"
+    }
   ]
 }

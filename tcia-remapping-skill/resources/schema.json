@@ -54,6 +54,41 @@
       "Property": "program.program_id",
       "Description": "Automatically injected linkage to Program",
       "Required/optional": "O"
+    },
+    {
+      "Property": "introduction",
+      "Description": "Introduction section of the dataset description",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "methods_subjects",
+      "Description": "Subject inclusion and exclusion criteria",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "methods_acquisition",
+      "Description": "Data acquisition details",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "methods_analysis",
+      "Description": "Data analysis details",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "usage_notes",
+      "Description": "Usage notes for the dataset",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "external_resources",
+      "Description": "Links to external resources",
+      "Required/optional": "O"
+    },
+    {
+      "Property": "why_tcia",
+      "Description": "Reasons for wanting to publish on TCIA",
+      "Required/optional": "O"
     }
   ],
   "Diagnosis": [

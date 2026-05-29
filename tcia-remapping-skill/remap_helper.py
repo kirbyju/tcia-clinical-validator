@@ -119,6 +119,8 @@ def write_metadata_tsv(entity_name, data, schema, output_dir='.', filename_prefi
     properties = linkage_props + regular_props
 
     df = pd.DataFrame(data)
+    for col in df.columns:
+        df[col] = df[col].apply(lambda x: str(x) if isinstance(x, list) else x)
     # Ensure all columns exist
     for prop in properties:
         if prop not in df.columns:
