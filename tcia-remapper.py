@@ -268,52 +268,58 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
         help_text = prop.get('Description', '')
         default_val = current_data.get(prop_name, "")
 
-        if prop_name in permissible_values:
-            options = permissible_values[prop_name]
+        # Convert list to comma-separated string for display in text inputs/areas
+        display_val = default_val
+        if isinstance(default_val, list):
+            display_val = ", ".join(map(str, default_val))
+        elif isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
+            try:
+                display_val = ", ".join(map(str, ast.literal_eval(default_val)))
+            except:
+                pass
+
+        if prop_name in permissible_values or prop_name == 'adult_or_childhood_study':
+            if prop_name == 'adult_or_childhood_study':
+                options = ["Adolescent and Young Adult", "Adult", "Pediatric"]
+            else:
+                options = permissible_values[prop_name]
+
             # Handle list of dicts from MDF parser
             if options and isinstance(options[0], dict):
                 option_labels = [f"{o['value']}" for o in options]
+            else:
+                option_labels = options
+
+            if prop_name == 'adult_or_childhood_study':
+                # Ensure default_val is a list for multiselect
+                if not isinstance(default_val, list):
+                    if isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
+                        try:
+                            default_val = ast.literal_eval(default_val)
+                        except:
+                            default_val = [default_val] if default_val else []
+                    else:
+                        default_val = [default_val] if default_val else []
+
+                selected = st.multiselect(label, options=option_labels, default=default_val, help=help_text, disabled=disabled)
+            else:
                 if not is_required:
                     option_labels = [""] + option_labels
-                
-                if prop_name == 'adult_or_childhood_study':
-                    # Ensure default_val is a list for multiselect
-                    if not isinstance(default_val, list):
-                        if isinstance(default_val, str) and default_val.startswith('[') and default_val.endswith(']'):
-                            try:
-                                default_val = ast.literal_eval(default_val)
-                            except:
-                                default_val = [default_val] if default_val else []
-                        else:
-                            default_val = [default_val] if default_val else []
+                # Find index of default value
+                current_val = str(default_val) if default_val else ""
+                try:
+                    default_idx = option_labels.index(current_val)
+                except ValueError:
+                    default_idx = 0
 
-                    selected = st.multiselect(label, options=option_labels, default=default_val, help=help_text, disabled=disabled)
-                else:
-                    # Find index of default value
-                    current_val = str(default_val) if default_val else ""
-                    try:
-                        default_idx = option_labels.index(current_val)
-                    except ValueError:
-                        default_idx = 0
-
-                    selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
-                form_data[prop_name] = selected
-            else:
-                if prop_name == 'adult_or_childhood_study':
-                    if not isinstance(default_val, list):
-                        default_val = [default_val] if default_val else []
-                    selected = st.multiselect(label, options=options, default=default_val, help=help_text, disabled=disabled)
-                else:
-                    if not is_required:
-                        options = [""] + options
-                    try:
-                        default_idx = options.index(default_val)
-                    except ValueError:
-                        default_idx = 0
-                    selected = st.selectbox(label, options=options, index=default_idx, help=help_text, disabled=disabled)
-                form_data[prop_name] = selected
+                selected = st.selectbox(label, options=option_labels, index=default_idx, help=help_text, disabled=disabled)
+            form_data[prop_name] = selected
         elif "description" in prop_name or "abstract" in prop_name or "acknowledgements" in prop_name:
-            form_data[prop_name] = st.text_area(label, value=str(default_val), help=help_text, disabled=disabled)
+            res = st.text_area(label, value=str(display_val), help=help_text, disabled=disabled)
+            if isinstance(default_val, list):
+                form_data[prop_name] = [s.strip() for s in res.split(',') if s.strip()]
+            else:
+                form_data[prop_name] = res
         elif "number" in prop_name or "count" in prop_name or "size" in prop_name:
             try:
                 dv = int(default_val) if default_val else 0
@@ -321,7 +327,11 @@ def render_dynamic_form(entity_name, schema, permissible_values, current_data=No
                 dv = 0
             form_data[prop_name] = st.number_input(label, value=dv, help=help_text, disabled=disabled)
         else:
-            form_data[prop_name] = st.text_input(label, value=str(default_val), help=help_text, disabled=disabled)
+            res = st.text_input(label, value=str(display_val), help=help_text, disabled=disabled)
+            if isinstance(default_val, list):
+                form_data[prop_name] = [s.strip() for s in res.split(',') if s.strip()]
+            else:
+                form_data[prop_name] = res
 
     return form_data
 
@@ -382,7 +392,7 @@ Welcome to the NCI Imaging Submission Validator. This tool helps you transform a
 """)
 
 # Show current phase
-phase_names = ["Phase 0: Summary Metadata", "Phase 1: Column Headers", "Phase 2: Permissible Values"]
+phase_names = ["Summary Metadata", "CICADAS", "Tabular Data Standardization"]
 st.sidebar.title("Progress")
 st.sidebar.write(f"**Current Phase:** {phase_names[st.session_state.phase]}")
 
@@ -392,21 +402,21 @@ if st.sidebar.button("🔄 Reset App"):
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("### Navigation")
-if st.sidebar.button("📋 Phase 0: Summary Metadata"):
+if st.sidebar.button("📋 Summary Metadata"):
     st.session_state.phase = 0
     st.rerun()
-if st.sidebar.button("🔗 Phase 1: Column Headers"):
+if st.sidebar.button("📋 CICADAS"):
     st.session_state.phase = 1
     st.rerun()
-if st.sidebar.button("✅ Phase 2: Permissible Values"):
+if st.sidebar.button("✅ Tabular Data Standardization"):
     st.session_state.phase = 2
     st.rerun()
 
 # ============================================================================
-# PHASE 0: SUMMARY METADATA COLLECTION
+# PHASE: SUMMARY METADATA COLLECTION
 # ============================================================================
 if st.session_state.phase == 0:
-    st.header("Phase 0: Summary Metadata")
+    st.header("Summary Metadata")
     st.markdown("""
     Before remapping your source files, let's collect high-level metadata for your submission.
     We'll go through this one entity at a time: **Start → Program → Dataset → Investigator → Related Work**
@@ -416,7 +426,6 @@ if st.session_state.phase == 0:
         "Start": "🚀 Start",
         "Program": "📁 Program",
         "Dataset": "📊 Dataset",
-        "CICADAS": "📋 CICADAS",
         "Investigator": "👤 Investigator",
         "Related_Work": "📚 Related Work",
         "Review": "📝 Review & Generate"
@@ -479,29 +488,26 @@ if st.session_state.phase == 0:
                     proposal_data = import_df.iloc[0].to_dict()
                     st.session_state.proposal_raw_data = proposal_data
 
+                    def clean_val(v):
+                        if pd.isna(v) or str(v).lower() == 'nan': return ""
+                        if isinstance(v, str) and v.startswith('[') and v.endswith(']'):
+                            try:
+                                return ast.literal_eval(v)
+                            except:
+                                return v
+                        return str(v)
+
                     # Map Dataset
-                    study_val = proposal_data.get('adult_or_childhood_study', '')
-                    if isinstance(study_val, str) and study_val.startswith('[') and study_val.endswith(']'):
-                        try:
-                            study_val = ast.literal_eval(study_val)
-                        except:
-                            pass
-
-                    # Handle funding sources
-                    f_agency = proposal_data.get('funding_agency', '')
-                    f_prog = proposal_data.get('funding_source_program_name', '')
-                    f_grant = proposal_data.get('grant_id', '')
-
                     ds_data = {
-                        'dataset_long_name': proposal_data.get('Title', ''),
-                        'dataset_short_name': proposal_data.get('Nickname', ''),
-                        'dataset_abstract': proposal_data.get('Abstract', ''),
+                        'dataset_long_name': clean_val(proposal_data.get('Title', '')),
+                        'dataset_short_name': clean_val(proposal_data.get('Nickname', '')),
+                        'dataset_abstract': clean_val(proposal_data.get('Abstract', '')),
                         'dataset_description': '', # No longer import description from proposal
-                        'adult_or_childhood_study': study_val,
-                        'acknowledgements': proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or '',
-                        'funding_agency': f_agency,
-                        'funding_source_program_name': f_prog,
-                        'grant_id': f_grant
+                        'adult_or_childhood_study': clean_val(proposal_data.get('adult_or_childhood_study', '')),
+                        'acknowledgements': clean_val(proposal_data.get('acknowledgements') or proposal_data.get('acknowledgments') or ''),
+                        'funding_agency': clean_val(proposal_data.get('funding_agency', '')),
+                        'funding_source_program_name': clean_val(proposal_data.get('funding_source_program_name', '')),
+                        'grant_id': clean_val(proposal_data.get('grant_id', ''))
                     }
                     st.session_state.metadata['Dataset'] = [ds_data]
 
@@ -658,111 +664,6 @@ if st.session_state.phase == 0:
 
                 st.session_state.metadata['Dataset'] = [dataset_data]
                 st.toast("✅ Basic Dataset information saved!")
-                st.session_state.phase0_step = 'CICADAS'
-                st.rerun()
-
-    # TAB 3: CICADAS
-    elif st.session_state.phase0_step == "CICADAS":
-        st.subheader("CICADAS Dataset Description")
-        st.markdown("""
-        Follow the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to ensure your dataset
-        is comprehensive and optimally discoverable.
-        """)
-
-        with st.form("cicadas_form"):
-            st.write("### Abstract")
-            c_abstract = st.text_area(
-                "Abstract (Max 1,000 Characters)*",
-                value=st.session_state.cicadas.get('abstract', ''),
-                help="Brief overview of the dataset: subjects, imaging types, potential applications.",
-                max_chars=1000,
-                label_visibility="collapsed"
-            )
-
-            st.write("### Introduction")
-            c_intro = st.text_area(
-                "Introduction",
-                value=st.session_state.cicadas.get('introduction', ''),
-                help="Purpose and uniqueness of the dataset.",
-                label_visibility="collapsed"
-            )
-
-            st.write("### Methods")
-            c_m_subjects = st.text_area(
-                "Subject Inclusion and Exclusion Criteria",
-                value=st.session_state.cicadas.get('methods_subjects', ''),
-                help="Demographics, clinical characteristics, and potential study bias."
-            )
-            c_m_acquisition = st.text_area(
-                "Data Acquisition",
-                value=st.session_state.cicadas.get('methods_acquisition', ''),
-                help="Scanner details, sequence parameters, radiotracers, etc."
-            )
-            c_m_analysis = st.text_area(
-                "Data Analysis",
-                value=st.session_state.cicadas.get('methods_analysis', ''),
-                help="Conversions, preprocessing, annotation protocols, quality control."
-            )
-
-            st.write("### Usage Notes")
-            c_usage = st.text_area(
-                "Usage Notes",
-                value=st.session_state.cicadas.get('usage_notes', ''),
-                help="Data organization, naming conventions, recommended software."
-            )
-
-            st.write("### External Resources")
-            c_ext = st.text_area(
-                "External Resources (Optional)",
-                value=st.session_state.cicadas.get('external_resources', ''),
-                help="Links to code, related datasets, or other tools."
-            )
-
-            submitted = st.form_submit_button("Save & Next")
-            if submitted:
-                # Update CICADAS state
-                st.session_state.cicadas = {
-                    'abstract': c_abstract,
-                    'introduction': c_intro,
-                    'methods_subjects': c_m_subjects,
-                    'methods_acquisition': c_m_acquisition,
-                    'methods_analysis': c_m_analysis,
-                    'usage_notes': c_usage,
-                    'external_resources': c_ext
-                }
-
-                # Construct dataset_description
-                desc_parts = []
-                if c_intro:
-                    desc_parts.append(f"## Introduction\n{c_intro}")
-
-                methods_content = ""
-                if c_m_subjects:
-                    methods_content += f"### Subject Inclusion and Exclusion Criteria\n{c_m_subjects}\n\n"
-                if c_m_acquisition:
-                    methods_content += f"### Data Acquisition\n{c_m_acquisition}\n\n"
-                if c_m_analysis:
-                    methods_content += f"### Data Analysis\n{c_m_analysis}\n\n"
-
-                if methods_content:
-                    desc_parts.append(f"## Methods\n{methods_content}")
-
-                if c_usage:
-                    desc_parts.append(f"## Usage Notes\n{c_usage}")
-
-                if c_ext:
-                    desc_parts.append(f"## External Resources\n{c_ext}")
-
-                full_description = "\n\n".join(desc_parts)
-
-                # Update metadata if Dataset exists
-                if st.session_state.metadata['Dataset']:
-                    st.session_state.metadata['Dataset'][0]['dataset_abstract'] = c_abstract
-                    st.session_state.metadata['Dataset'][0]['dataset_description'] = full_description
-                else:
-                    st.warning("⚠️ Please fill out the basic Dataset information first.")
-
-                st.toast("✅ CICADAS information saved!")
                 st.session_state.phase0_step = 'Investigator'
                 st.rerun()
 
@@ -870,7 +771,14 @@ if st.session_state.phase == 0:
             for idx, inv in enumerate(st.session_state.metadata['Investigator']):
                 col1, col2 = st.columns([6, 1])
                 with col1:
-                    st.write(f"{idx+1}. {inv.get('first_name', '')} {inv.get('last_name', '')} ({inv.get('email', '')}) - {inv.get('organization_name', '')}")
+                    suffix = ""
+                    if inv.get('person_orcid'):
+                        suffix = f"({inv.get('person_orcid')})"
+                    elif inv.get('email'):
+                        suffix = f"({inv.get('email')})"
+                    else:
+                        suffix = "()"
+                    st.write(f"{idx+1}. {inv.get('first_name', '')} {inv.get('last_name', '')} {suffix} - {inv.get('organization_name', '')}")
                 with col2:
                     if st.button("🗑️", key=f"del_inv_{idx}"):
                         st.session_state.metadata['Investigator'].pop(idx)
@@ -1326,8 +1234,36 @@ if st.session_state.phase == 0:
         if st.session_state.metadata.get('Dataset') and st.session_state.metadata['Dataset'][0].get('dataset_short_name'):
             nickname_prefix = st.session_state.metadata['Dataset'][0]['dataset_short_name']
 
+        # Add CICADAS fields to Dataset if they exist
+        if 'Dataset' in metadata_to_write and st.session_state.cicadas:
+            ds = metadata_to_write['Dataset'][0]
+            # Mapping CICADAS fields to TSV columns
+            # We add them to the dict, write_metadata_tsv handles sorting if they are in schema
+            # If they are NOT in schema, we might need to add them to schema dynamically
+            # or rely on the fact that write_metadata_tsv uses df.columns if not in all_props?
+            # Actually write_metadata_tsv filters by schema.
+
+            # Let's see what CICADAS fields we have
+            for k, v in st.session_state.cicadas.items():
+                # Prefix with cicadas_ to avoid collisions and match potential future schema
+                ds[f"cicadas_{k}"] = v
+
         for entity_name, data in metadata_to_write.items():
-            filepath = write_metadata_tsv(entity_name, data, schema, st.session_state.output_dir, filename_prefix=nickname_prefix)
+            # Dynamically add cicadas fields to schema for Dataset if we are writing it
+            current_schema = schema
+            if entity_name == 'Dataset' and st.session_state.cicadas:
+                import copy
+                current_schema = copy.deepcopy(schema)
+                for k in st.session_state.cicadas.keys():
+                    prop_key = f"cicadas_{k}"
+                    if not any(p['Property'] == prop_key for p in current_schema['Dataset']):
+                        current_schema['Dataset'].append({
+                            'Property': prop_key,
+                            'Description': f'CICADAS {k}',
+                            'Required/optional': 'O'
+                        })
+
+            filepath = write_metadata_tsv(entity_name, data, current_schema, st.session_state.output_dir, filename_prefix=nickname_prefix)
             if filepath:
                 generated_files_map[entity_name] = filepath
         st.session_state.generated_tsv_files = list(generated_files_map.values())
@@ -1386,28 +1322,153 @@ if st.session_state.phase == 0:
                         for idx, item in enumerate(entity_data):
                             st.write(f"**{entity_key} {idx+1}:**")
                             for key, value in item.items():
-                                display_val = ", ".join(map(str, value)) if isinstance(value, list) else value
+                                # Handle list display for UI
+                                if isinstance(value, list):
+                                    display_val = ", ".join(map(str, value))
+                                elif isinstance(value, str) and value.startswith('[') and value.endswith(']'):
+                                    try:
+                                        display_val = ", ".join(map(str, ast.literal_eval(value)))
+                                    except:
+                                        display_val = value
+                                else:
+                                    display_val = value
                                 st.write(f"  - {key}: {display_val}")
                     else: # Program, Dataset
                         for key, value in entity_data[0].items():
-                            display_val = ", ".join(map(str, value)) if isinstance(value, list) else value
+                            # Handle list display for UI
+                            if isinstance(value, list):
+                                display_val = ", ".join(map(str, value))
+                            elif isinstance(value, str) and value.startswith('[') and value.endswith(']'):
+                                try:
+                                    display_val = ", ".join(map(str, ast.literal_eval(value)))
+                                except:
+                                    display_val = value
+                            else:
+                                display_val = value
                             st.write(f"**{key}:** {display_val}")
                 else:
                     st.warning(f"No {entity_key.lower()} information provided.")
 
         st.markdown("---")
         
-        if st.button("➡️ Proceed to Phase 1", use_container_width=True, type="primary"):
+        if st.button("➡️ Proceed to CICADAS", use_container_width=True, type="primary"):
             st.session_state.phase = 1
             st.rerun()
 
 # ============================================================================
-# PHASE 1: COLUMN HEADERS
+# PHASE: CICADAS
 # ============================================================================
 elif st.session_state.phase == 1:
-    st.header("Phase 1: Column Headers")
+    st.header("CICADAS")
     st.markdown("""
-    Upload your source data files and map your columns to the target entities.
+    Follow the [CICADAS checklist](https://cancerimagingarchive.net/cicadas) to ensure your dataset
+    is comprehensive and optimally discoverable.
+    """)
+
+    with st.form("cicadas_form"):
+        st.write("### Abstract")
+        c_abstract = st.text_area(
+            "Abstract (Max 1,000 Characters)*",
+            value=st.session_state.cicadas.get('abstract', ''),
+            help="Brief overview of the dataset: subjects, imaging types, potential applications.",
+            max_chars=1000,
+            label_visibility="collapsed"
+        )
+
+        st.write("### Introduction")
+        c_intro = st.text_area(
+            "Introduction",
+            value=st.session_state.cicadas.get('introduction', ''),
+            help="Purpose and uniqueness of the dataset.",
+            label_visibility="collapsed"
+        )
+
+        st.write("### Methods")
+        c_m_subjects = st.text_area(
+            "Subject Inclusion and Exclusion Criteria",
+            value=st.session_state.cicadas.get('methods_subjects', ''),
+            help="Demographics, clinical characteristics, and potential study bias."
+        )
+        c_m_acquisition = st.text_area(
+            "Data Acquisition",
+            value=st.session_state.cicadas.get('methods_acquisition', ''),
+            help="Scanner details, sequence parameters, radiotracers, etc."
+        )
+        c_m_analysis = st.text_area(
+            "Data Analysis",
+            value=st.session_state.cicadas.get('methods_analysis', ''),
+            help="Conversions, preprocessing, annotation protocols, quality control."
+        )
+
+        st.write("### Usage Notes")
+        c_usage = st.text_area(
+            "Usage Notes",
+            value=st.session_state.cicadas.get('usage_notes', ''),
+            help="Data organization, naming conventions, recommended software."
+            )
+
+        st.write("### External Resources")
+        c_ext = st.text_area(
+            "External Resources (Optional)",
+            value=st.session_state.cicadas.get('external_resources', ''),
+            help="Links to code, related datasets, or other tools."
+        )
+
+        submitted = st.form_submit_button("Save & Proceed to Tabular Data Standardization")
+        if submitted:
+            # Update CICADAS state
+            st.session_state.cicadas = {
+                'abstract': c_abstract,
+                'introduction': c_intro,
+                'methods_subjects': c_m_subjects,
+                'methods_acquisition': c_m_acquisition,
+                'methods_analysis': c_m_analysis,
+                'usage_notes': c_usage,
+                'external_resources': c_ext
+            }
+
+            # Construct dataset_description
+            desc_parts = []
+            if c_intro:
+                desc_parts.append(f"## Introduction\n{c_intro}")
+
+            methods_content = ""
+            if c_m_subjects:
+                methods_content += f"### Subject Inclusion and Exclusion Criteria\n{c_m_subjects}\n\n"
+            if c_m_acquisition:
+                methods_content += f"### Data Acquisition\n{c_m_acquisition}\n\n"
+            if c_m_analysis:
+                methods_content += f"### Data Analysis\n{c_m_analysis}\n\n"
+
+            if methods_content:
+                desc_parts.append(f"## Methods\n{methods_content}")
+
+            if c_usage:
+                desc_parts.append(f"## Usage Notes\n{c_usage}")
+
+            if c_ext:
+                desc_parts.append(f"## External Resources\n{c_ext}")
+
+            full_description = "\n\n".join(desc_parts)
+
+            # Update metadata if Dataset exists
+            if st.session_state.metadata['Dataset']:
+                st.session_state.metadata['Dataset'][0]['dataset_abstract'] = c_abstract
+                st.session_state.metadata['Dataset'][0]['dataset_description'] = full_description
+            else:
+                st.warning("⚠️ Please fill out the basic Dataset information first in Summary Metadata.")
+
+            st.toast("✅ CICADAS information saved!")
+            st.session_state.phase = 2
+            st.rerun()
+
+# ============================================================================
+# PHASE: TABULAR DATA STANDARDIZATION
+# ============================================================================
+elif st.session_state.phase == 2:
+    st.header("Tabular Data Standardization")
+    st.markdown("""
+    Upload your source data files, map your columns, and standardize your values.
     """)
     
     # File upload
@@ -1546,30 +1607,21 @@ elif st.session_state.phase == 1:
             
             # Show proceed button if mapping is approved
             if st.session_state.structure_approved:
-                st.markdown("---")
-                if st.button("➡️ Proceed to Phase 2", type="primary", use_container_width=True):
-                    st.session_state.phase = 2
-                    st.rerun()
+                st.info("✅ Column mapping confirmed! Scroll down to standardize values.")
         
         except Exception as e:
             st.error(f"Error reading file: {str(e)}")
     else:
         st.info("👆 Please upload a file to begin structure mapping.")
 
-# ============================================================================
-# PHASE 2: PERMISSIBLE VALUES
-# ============================================================================
-elif st.session_state.phase == 2:
-    st.header("Phase 2: Permissible Values")
-    st.markdown("""
-    Now let's standardize your data values to match permissible values using ontology-enhanced matching.
-    """)
-    
-    if st.session_state.uploaded_data is None:
-        st.warning("No data uploaded. Please go back to Phase 1.")
-    elif not st.session_state.structure_approved:
-        st.warning("Structure mapping not confirmed. Please complete Phase 1 first.")
-    else:
+    # --- Permissible Values (Standardization) ---
+    if st.session_state.uploaded_data is not None and st.session_state.structure_approved:
+        st.markdown("---")
+        st.subheader("Value Standardization")
+        st.markdown("""
+        Standardize your data values to match permissible values using ontology-enhanced matching.
+        """)
+
         df = st.session_state.uploaded_data
 
         # --- Automatic Linkage Handling ---
