@@ -15,10 +15,15 @@ import datetime
 from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.utils import simpleSplit
+from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib import colors
+from reportlab.lib.enums import TA_CENTER
 import importlib.util
 import re
 import requests
 import uuid
+from xml.sax.saxutils import escape
 
 st.set_page_config(page_title="TCIA Dataset Proposal Form", layout="wide")
 
@@ -530,27 +535,22 @@ if submit_button:
         df = pd.DataFrame([all_responses])
         df.to_csv(tsv_buffer, sep='\t', index=False)
 
-        # Generate DOCX
-        doc = Document()
-        doc.add_heading(f"TCIA Dataset Proposal: {title}", 0)
-
-        table = doc.add_table(rows=0, cols=2)
-        table.style = 'Table Grid'
-
-        # Pre-process for better DOCX display
-        docx_responses = all_responses.copy()
+        # Prepare Data for Reports (DOCX and PDF)
+        report_data = [] # List of (label, value) pairs
 
         # Organize file formats for display
-        file_formats = docx_responses.get('file_formats', '')
+        file_formats = all_responses.get('file_formats', '')
         format_map = {}
         if file_formats:
             for part in str(file_formats).split(';'):
                 if ' - ' in part:
-                    t, f = part.split(' - ', 1)
-                    format_map[t.strip()] = f.strip()
+                    parts = part.split(' - ')
+                    if len(parts) >= 2:
+                        t = parts[0]
+                        f = " - ".join(parts[1:])
+                        format_map[t.strip()] = f.strip()
 
-        def format_type_with_format(key):
-            val = docx_responses.get(key)
+        def format_val_with_format(key, val):
             if not val: return ""
             items = val if isinstance(val, list) else [val]
             formatted = []
@@ -561,42 +561,41 @@ if submit_button:
                     formatted.append(str(item))
             return ", ".join(formatted)
 
-        if 'image_types' in docx_responses:
-            docx_responses['image_types'] = format_type_with_format('image_types')
-        if 'supporting_data' in docx_responses:
-            docx_responses['supporting_data'] = format_type_with_format('supporting_data')
-        if 'derived_types' in docx_responses:
-            docx_responses['derived_types'] = format_type_with_format('derived_types')
-
-        # DOCX Generation
-        for key, value in docx_responses.items():
+        for key, value in all_responses.items():
             if key == "Manuscripts":
                 label = "Manuscripts/Preprints"
-                row_cells = table.add_row().cells
-                row_cells[0].text = label
                 ms_text = ""
                 for ms in st.session_state.manuscript_list:
                     val = ms['url'] if ms['type'] == 'URL' else ms['file'].name
                     ms_text += f"- [{ms['category']}] {val}\n"
-                row_cells[1].text = ms_text.strip()
+                report_data.append((label, ms_text.strip()))
             elif "POC Phone" in key:
                 if value and str(value).lower() != "nan" and str(value).strip():
                     label = LABELS.get(key, key)
-                    row_cells = table.add_row().cells
-                    row_cells[0].text = label
-                    row_cells[1].text = str(value)
-                else:
-                    continue # Omit entirely
+                    report_data.append((label, str(value)))
+            elif key == "file_formats":
+                continue # Handled inline with types
             else:
                 label = LABELS.get(key, key)
-                row_cells = table.add_row().cells
-                row_cells[0].text = label
-
-                if isinstance(value, list):
-                    row_cells[1].text = ", ".join(map(str, value))
+                if key in ['image_types', 'supporting_data', 'derived_types']:
+                    display_val = format_val_with_format(key, value)
+                elif isinstance(value, list):
+                    display_val = ", ".join(map(str, value))
                 else:
-                    row_cells[1].text = str(value)
+                    display_val = str(value)
+                report_data.append((label, display_val))
 
+        # Generate DOCX
+        doc = Document()
+        doc.add_heading(f"TCIA Dataset Proposal: {title}", 0)
+
+        table = doc.add_table(rows=0, cols=2)
+        table.style = 'Table Grid'
+
+        for label, value in report_data:
+            row_cells = table.add_row().cells
+            row_cells[0].text = label
+            row_cells[1].text = value
             # Make the first column bold
             for paragraph in row_cells[0].paragraphs:
                 for run in paragraph.runs:
@@ -609,30 +608,98 @@ if submit_button:
         # Generate PDF
         pdf_buffer = io.BytesIO()
         try:
-            # Create a new page 6 for Exhibit A
+            # Prepare Exhibit A pages using Platypus
             exhibit_a_buffer = io.BytesIO()
-            c = canvas.Canvas(exhibit_a_buffer, pagesize=letter)
-            width, height = letter
 
-            # Header matching the template
-            c.setFont("Helvetica", 10)
-            c.drawString(50, height - 50, "TCIA Data Submission Agreement (v. 20220 914) Page 6 of 7")
+            # Custom canvas to add headers/footers
+            class ExhibitCanvas(canvas.Canvas):
+                def __init__(self, *args, **kwargs):
+                    canvas.Canvas.__init__(self, *args, **kwargs)
+                    self.pages = []
 
-            c.setFont("Helvetica-Bold", 14)
-            c.drawCentredString(width/2, height - 100, "EXHIBIT A")
-            c.drawCentredString(width/2, height - 120, "DESCRIPTION OF SUBMISSION DATA")
+                def showPage(self):
+                    self.pages.append(dict(self.__dict__))
+                    self._startPage()
 
-            c.setFont("Helvetica", 11)
-            text_object = c.beginText(50, height - 160)
-            text_object.setFont("Helvetica", 11)
+                def save(self):
+                    page_count = len(self.pages)
+                    for count, page in enumerate(self.pages):
+                        self.__dict__.update(page)
+                        self.draw_canvas(count+1, page_count)
+                        canvas.Canvas.showPage(self)
+                    canvas.Canvas.save(self)
 
-            wrapped_abstract = simpleSplit(abstract, "Helvetica", 11, width - 100)
-            for line in wrapped_abstract:
-                text_object.textLine(line)
+                def draw_canvas(self, page_num, total_pages):
+                    width, height = letter
+                    # Sequential numbering starts from 6
+                    display_page = page_num + 5
+                    # Total pages for the whole document (template has 7 pages, we replaced 1 with N)
+                    total_display = total_pages + 6
 
-            c.drawText(text_object)
-            c.showPage()
-            c.save()
+                    self.saveState()
+                    self.setFont("Helvetica", 10)
+                    header_text = f"TCIA Data Submission Agreement (v. 20220 914) Page {display_page} of {total_display}"
+                    self.drawString(50, height - 50, header_text)
+                    self.restoreState()
+
+            doc_exhibit = SimpleDocTemplate(
+                exhibit_a_buffer,
+                pagesize=letter,
+                rightMargin=50, leftMargin=50,
+                topMargin=70, bottomMargin=50
+            )
+
+            styles = getSampleStyleSheet()
+            style_center = ParagraphStyle(
+                name='Center',
+                parent=styles['Normal'],
+                alignment=TA_CENTER
+            )
+            style_cell = ParagraphStyle(
+                'TableCell',
+                parent=styles['Normal'],
+                fontSize=10,
+                leading=12,
+                wordWrap='LTR'
+            )
+            style_cell_bold = ParagraphStyle(
+                'TableCellBold',
+                parent=style_cell,
+                fontName='Helvetica-Bold'
+            )
+
+            elements = []
+
+            # Exhibit A Header
+            elements.append(Paragraph("<br/><br/><br/><b><font size=14>EXHIBIT A</font></b>", style_center))
+            elements.append(Paragraph("<b><font size=14>DESCRIPTION OF SUBMISSION DATA</font></b>", style_center))
+            elements.append(Spacer(1, 20))
+
+            # Table Data
+            table_data = []
+            for label, val in report_data:
+                # Escape user input for ReportLab XML-like markup
+                escaped_label = escape(label)
+                escaped_val = escape(val).replace('\n', '<br/>')
+                table_data.append([
+                    Paragraph(f"<b>{escaped_label}</b>", style_cell),
+                    Paragraph(escaped_val, style_cell)
+                ])
+
+            t = Table(table_data, colWidths=[150, 350])
+            t.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (0, -1), colors.lightgrey),
+                ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+                ('GRID', (0, 0), (-1, -1), 0.5, colors.black),
+                ('LEFTPADDING', (0, 0), (-1, -1), 6),
+                ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+                ('TOPPADDING', (0, 0), (-1, -1), 6),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+            ]))
+            elements.append(t)
+
+            doc_exhibit.build(elements, canvasmaker=ExhibitCanvas)
             exhibit_a_buffer.seek(0)
 
             # Merge with template
@@ -643,12 +710,42 @@ if submit_button:
             for i in range(5):
                 writer.add_page(reader.pages[i])
 
-            # Replace Page 6
+            # Insert Exhibit A pages
             new_exhibit_reader = PyPDF2.PdfReader(exhibit_a_buffer)
-            writer.add_page(new_exhibit_reader.pages[0])
+            for page in new_exhibit_reader.pages:
+                writer.add_page(page)
 
-            # Page 7
-            writer.add_page(reader.pages[6])
+            # Page 7 (last page of original template)
+            # Need to fix the page number on the last page as well
+            last_page = reader.pages[6]
+
+            # Since we can't easily edit text on existing PDF page without more complex tools,
+            # and the user said "continue sequential numbering",
+            # I will just append the last page as is for now,
+            # BUT wait, the footer of page 7 will say "Page 7 of 7".
+            # If Exhibit A took 2 pages (6 and 7), then the last page should be Page 8 of 8.
+
+            # Actually, let's try to overlay the correct page number on the last page.
+            total_exhibit_pages = len(new_exhibit_reader.pages)
+            total_final_pages = total_exhibit_pages + 6
+
+            overlay_buffer = io.BytesIO()
+            c_overlay = canvas.Canvas(overlay_buffer, pagesize=letter)
+            c_overlay.setFont("Helvetica", 10)
+            c_overlay.setFillColor(colors.white)
+            # Draw a white box over the old page number
+            c_overlay.rect(40, letter[1] - 60, 500, 20, fill=1, stroke=0)
+            c_overlay.setFillColor(colors.black)
+            header_text = f"TCIA Data Submission Agreement (v. 20220 914) Page {total_final_pages} of {total_final_pages}"
+            c_overlay.drawString(50, letter[1] - 50, header_text)
+            c_overlay.showPage()
+            c_overlay.save()
+            overlay_buffer.seek(0)
+
+            overlay_reader = PyPDF2.PdfReader(overlay_buffer)
+            last_page.merge_page(overlay_reader.pages[0])
+
+            writer.add_page(last_page)
 
             writer.write(pdf_buffer)
             pdf_buffer.seek(0)
